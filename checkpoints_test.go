@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"code.justin.tv/gareth/kinsumer/mocks"
+	"github.com/twitchscience/kinsumer/mocks"
 
 	"github.com/aws/aws-sdk-go/aws"
 )

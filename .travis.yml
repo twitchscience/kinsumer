@@ -1,0 +1,16 @@
+sudo: false
+language: go
+go:
+- 1.6
+go_import_path: github.com/twitchscience/kinsumer
+install:
+- go get github.com/alecthomas/gometalinter
+- go get github.com/cactus/go-statsd-client/statsd
+- go get github.com/aws/aws-sdk-go/aws/...
+- go get github.com/twinj/uuid
+- go get github.com/stretchr/testify/...
+- gometalinter --install
+script:
+- go install ./...
+- go test -short ./...
+- gometalinter ./... --deadline 2m --disable gocyclo --disable dupl
