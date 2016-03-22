@@ -339,9 +339,9 @@ func (k *Kinsumer) Stop() {
 }
 
 // Next is a blocking function used to get the next record from the kinesis queue, or errors that
-// occured during the processing of kinesis. It's up to the caller to stop processing by calling 'Stop()'
+// occurred during the processing of kinesis. It's up to the caller to stop processing by calling 'Stop()'
 //
-// if err is non nil an error occured in the system.
+// if err is non nil an error occurred in the system.
 // if err is nil and data is nil then kinsumer has been stopped
 func (k *Kinsumer) Next() (data []byte, err error) {
 	select {

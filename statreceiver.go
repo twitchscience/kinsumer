@@ -9,7 +9,7 @@ import "time"
 // the operation of the consumer.
 //
 // The methods will get called from multiple go routines and it is
-// the implementors responsibility to handle thread syncronization
+// the implementors responsibility to handle thread synchronization
 type StatReceiver interface {
 	// Dynamo operations
 
@@ -21,9 +21,9 @@ type StatReceiver interface {
 	// `retrieved` is the time when kinsumer retrieved the record from kinesis
 	EventToClient(inserted, retrieved time.Time)
 
-	// EventsFromKinesis is called everytime a bunch of records is retrieved from
+	// EventsFromKinesis is called every time a bunch of records is retrieved from
 	// a kinesis shard.
-	// `num` Number of records retreived.
+	// `num` Number of records retrieved.
 	// `lag` How far the records are from the tip of the stream.
 	EventsFromKinesis(num int, lag time.Duration)
 }

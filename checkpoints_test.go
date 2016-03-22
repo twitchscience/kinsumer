@@ -102,7 +102,7 @@ func TestCheckpointer(t *testing.T) {
 		}
 
 		if cp2.sequenceNumber != "lastseq" {
-			t.Errorf("Release should have commited `lastseq` but new checkpointer got %s!", cp2.sequenceNumber)
+			t.Errorf("Release should have committed `lastseq` but new checkpointer got %s!", cp2.sequenceNumber)
 		}
 	*/
 }

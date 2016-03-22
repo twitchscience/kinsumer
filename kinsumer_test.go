@@ -283,7 +283,7 @@ func TestSetup(t *testing.T) {
 
 }
 
-// This is not a real final test. It's just a harness for development and to kind of think thru the interface
+// This is not a real final test. It's just a harness for development and to kind of think through the interface
 func TestKinsumer(t *testing.T) {
 	const (
 		numberOfEventsToTest = 123456
