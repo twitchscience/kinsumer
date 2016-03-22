@@ -116,7 +116,7 @@ func capture(
 	return checkpointer, nil
 }
 
-//TODO: Make sure we are the owner when commiting or else we have race conditions galore
+//TODO: Make sure we are the owner when committing or else we have race conditions galore
 func (cp *checkpointer) commit() error {
 	cp.mutex.Lock()
 	defer cp.mutex.Unlock()
