@@ -173,7 +173,7 @@ func (k *Kinsumer) refreshShards() (bool, error) {
 		(thisClient != k.thisClient) ||
 		(len(k.shards) != len(shards))
 
-	if changed == false {
+	if !changed {
 		for idx := range shards {
 			if aws.StringValue(shards[idx].ShardId) != aws.StringValue(k.shards[idx].ShardId) {
 				changed = true
