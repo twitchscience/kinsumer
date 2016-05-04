@@ -3,6 +3,7 @@
 package statsd
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/cactus/go-statsd-client/statsd"
@@ -49,7 +50,7 @@ func (s *Statsd) EventToClient(inserted, retrieved time.Time) {
 
 // EventsFromKinesis implementation that writes to statsd metrics about records that
 // were retrieved from kinesis
-func (s *Statsd) EventsFromKinesis(num int, lag time.Duration) {
-	_ = s.client.TimingDuration("kinsumer.lag", lag, 1.0)
-	_ = s.client.Inc("kinsumer.retrieved", int64(num), 1.0)
+func (s *Statsd) EventsFromKinesis(num int, shardID string, lag time.Duration) {
+	_ = s.client.TimingDuration(fmt.Sprintf("kinsumer.%s.lag", shardID), lag, 1.0)
+	_ = s.client.Inc(fmt.Sprintf("kinsumer.%s.retrieved", shardID), int64(num), 1.0)
 }

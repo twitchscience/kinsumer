@@ -13,7 +13,17 @@ import (
 )
 
 const (
-	getRecordsLimit = 100
+	// getRecordsLimit is the max number of records in a single request. This effectively limits the
+	// total processing speed to getRecordsLimit*5/n where n is the number of parallel clients trying
+	// to consume from the same kinesis stream
+	getRecordsLimit = 10000 // 10,000 is the max according to the docs
+
+	// maxErrorRetries is how many times we will retry on a shard error
+	maxErrorRetries = 5
+
+	// errorSleepDuration is how long we sleep when an error happens, this is multiplied by the number
+	// of retries to give a minor backoff behavior
+	errorSleepDuration = 1 * time.Second
 )
 
 func getShardIterator(k kinesisiface.KinesisAPI, streamName *string, shardID *string, sequenceNumber string) (*string, error) {
@@ -65,7 +75,7 @@ func (k *Kinsumer) captureShard(shardID *string) (*checkpointer, error) {
 			k.dynamodb,
 			k.clientName,
 			k.clientID,
-			k.config.maxAgeForClientRecord,
+			k.maxAgeForClientRecord,
 			k.config.stats)
 		if err != nil {
 			return nil, err
@@ -129,7 +139,6 @@ func (k *Kinsumer) consume(shardID *string) {
 	nextThrottleDelay := k.config.throttleDelay
 
 	retryCount := 0
-	maxRetries := 3 // Config?
 
 mainloop:
 	for {
@@ -151,7 +160,6 @@ mainloop:
 				return
 			}
 		case <-time.After(nextThrottleDelay):
-		default:
 		}
 
 		// Reset the throttleDelay
@@ -163,15 +171,19 @@ mainloop:
 		if err != nil {
 			if awsErr, ok := err.(awserr.Error); ok {
 				switch awsErr.Code() {
-				case "ProvisionedThroughputExceededException":
+				case "ProvisionedThroughputExceededException", "LimitExceededException":
 					// No need to do anything in this situation, just recycle and wait for the throttleDelay
 					continue mainloop
 				default:
 					if retryCount > 0 {
-						log.Println("Got error", awsErr.Message(), "retry count is", retryCount, "/", maxRetries)
+						log.Println("Got error", awsErr.Message(), "retry count is", retryCount, "/", maxErrorRetries)
 					}
-					if retryCount < maxRetries {
+					if retryCount < maxErrorRetries {
 						retryCount++
+
+						// casting retryCount here to time.Duration purely for the multiplication, there is
+						// no meaning to retryCount nanoseconds
+						time.Sleep(errorSleepDuration * time.Duration(retryCount))
 						continue mainloop
 					}
 				}
@@ -182,7 +194,7 @@ mainloop:
 		retryCount = 0
 
 		// Put all the records we got onto the channel
-		k.config.stats.EventsFromKinesis(len(records), lag)
+		k.config.stats.EventsFromKinesis(len(records), aws.StringValue(shardID), lag)
 		if len(records) > 0 {
 			retrievedAt := time.Now()
 			for _, record := range records {

@@ -24,6 +24,7 @@ type StatReceiver interface {
 	// EventsFromKinesis is called every time a bunch of records is retrieved from
 	// a kinesis shard.
 	// `num` Number of records retrieved.
+	// `shardID` ID of the shard that the records were retrieved from
 	// `lag` How far the records are from the tip of the stream.
-	EventsFromKinesis(num int, lag time.Duration)
+	EventsFromKinesis(num int, shardID string, lag time.Duration)
 }

@@ -36,10 +36,6 @@ func TestConfigErrors(t *testing.T) {
 	err = validateConfig(&config)
 	require.EqualError(t, err, ErrConfigInvalidShardCheckFrequency.Error())
 
-	config = NewConfig().WithMaxAgeForClientRecord(0)
-	err = validateConfig(&config)
-	require.EqualError(t, err, ErrConfigInvalidMaxAgeForClientRecord.Error())
-
 	config = NewConfig().WithBufferSize(0)
 	err = validateConfig(&config)
 	require.EqualError(t, err, ErrConfigInvalidBufferSize.Error())
@@ -54,7 +50,6 @@ func TestConfigWithMethods(t *testing.T) {
 	config := NewConfig().
 		WithBufferSize(1).
 		WithCommitFrequency(1 * time.Second).
-		WithMaxAgeForClientRecord(1 * time.Second).
 		WithShardCheckFrequency(1 * time.Second).
 		WithThrottleDelay(1 * time.Second).
 		WithStats(stats)
@@ -66,6 +61,5 @@ func TestConfigWithMethods(t *testing.T) {
 	require.Equal(t, 1*time.Second, config.throttleDelay)
 	require.Equal(t, 1*time.Second, config.commitFrequency)
 	require.Equal(t, 1*time.Second, config.shardCheckFrequency)
-	require.Equal(t, 1*time.Second, config.maxAgeForClientRecord)
 	require.Equal(t, stats, config.stats)
 }

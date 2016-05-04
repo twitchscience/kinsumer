@@ -24,9 +24,6 @@ type Config struct {
 	// Delay between tests for the shard numbers changing (will be replaced when balancing is done)
 	shardCheckFrequency time.Duration
 
-	// How long before we treat a client as not updating
-	maxAgeForClientRecord time.Duration
-
 	// Size of the buffer for the combined records channel. When the channel fills up
 	// the workers will stop adding new elements to the queue, so a slow client will
 	// potentially fall behind the kinesis stream.
@@ -36,12 +33,11 @@ type Config struct {
 // NewConfig returns a default Config struct
 func NewConfig() Config {
 	return Config{
-		throttleDelay:         200 * time.Millisecond,
-		commitFrequency:       1000 * time.Millisecond,
-		shardCheckFrequency:   1 * time.Second,
-		maxAgeForClientRecord: 30 * time.Second,
-		bufferSize:            100,
-		stats:                 &NoopStatReceiver{},
+		throttleDelay:       200 * time.Millisecond,
+		commitFrequency:     1000 * time.Millisecond,
+		shardCheckFrequency: 1 * time.Minute,
+		bufferSize:          100,
+		stats:               &NoopStatReceiver{},
 	}
 }
 
@@ -60,12 +56,6 @@ func (c Config) WithCommitFrequency(commitFrequency time.Duration) Config {
 // WithShardCheckFrequency returns a Config with a modified shard check frequency
 func (c Config) WithShardCheckFrequency(shardCheckFrequency time.Duration) Config {
 	c.shardCheckFrequency = shardCheckFrequency
-	return c
-}
-
-// WithMaxAgeForClientRecord returns a Config with a modified max age for client record
-func (c Config) WithMaxAgeForClientRecord(maxAgeForClientRecord time.Duration) Config {
-	c.maxAgeForClientRecord = maxAgeForClientRecord
 	return c
 }
 
@@ -93,10 +83,6 @@ func validateConfig(c *Config) error {
 
 	if c.shardCheckFrequency == 0 {
 		return ErrConfigInvalidShardCheckFrequency
-	}
-
-	if c.maxAgeForClientRecord == 0 {
-		return ErrConfigInvalidMaxAgeForClientRecord
 	}
 
 	if c.bufferSize == 0 {

@@ -26,8 +26,6 @@ var (
 	ErrConfigInvalidCommitFrequency = errors.New("CommitFrequency config value is mandatory")
 	// ErrConfigInvalidShardCheckFrequency - ShardCheckFrequency config value is mandatory
 	ErrConfigInvalidShardCheckFrequency = errors.New("ShardCheckFrequency config value is mandatory")
-	// ErrConfigInvalidMaxAgeForClientRecord - MaxAgeForClientRecord config value is mandatory
-	ErrConfigInvalidMaxAgeForClientRecord = errors.New("MaxAgeForClientRecord config value is mandatory")
 	// ErrConfigInvalidBufferSize - BufferSize config value is mandatory
 	ErrConfigInvalidBufferSize = errors.New("BufferSize config value is mandatory")
 	// ErrConfigInvalidStats - Stats cannot be nil

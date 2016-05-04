@@ -16,4 +16,4 @@ func (*NoopStatReceiver) Checkpoint() {}
 func (*NoopStatReceiver) EventToClient(inserted, retrieved time.Time) {}
 
 // EventsFromKinesis implememntation that doesn't do anything
-func (*NoopStatReceiver) EventsFromKinesis(num int, lag time.Duration) {}
+func (*NoopStatReceiver) EventsFromKinesis(num int, shardID string, lag time.Duration) {}

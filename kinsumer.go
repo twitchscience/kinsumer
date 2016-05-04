@@ -32,26 +32,28 @@ type consumedRecord struct {
 // Kinsumer is a Kinesis Consumer that tries to reduce duplicate reads while allowing for mutliple
 // clients each processing multiple shards
 type Kinsumer struct {
-	kinesis             kinesisiface.KinesisAPI   // interface to the kinesis service
-	dynamodb            dynamodbiface.DynamoDBAPI // interface to the dynamodb service
-	streamName          string                    // name of the kinesis stream to consume from
-	shards              []*kinesis.Shard          // all the shards in the stream, for detecting when the shards change
-	stop                chan struct{}             // channel used to signal to all the go routines that we want to stop consuming
-	stoprequest         chan bool                 // channel used internally to signal to the main go routine to stop processing
-	records             chan *consumedRecord      // channel for the go routines to put the consumed records on
-	output              chan *consumedRecord      // unbuffered channel used to communicate from the main loop to the Next() method
-	errors              chan error                // channel used to communicate errors back to the caller
-	waitGroup           sync.WaitGroup            // waitGroup to sync the consumers go routines on
-	mainWG              sync.WaitGroup            // WaitGroup for the mainLoop
-	shardErrors         chan shardConsumerError   // all the errors found by the consumers that were not handled
-	clientsTableName    string                    // dynamo table where info about each client is stored
-	checkpointTableName string                    // dynamo table where the checkpoints for each shard are stored
-	clientID            string                    // identifier to differentiate between the running clients
-	clientName          string                    // display name of the client - used just for debugging
-	totalClients        int                       // The number of clients that are currently working on this stream
-	thisClient          int                       // The (sorted by name) index of this client in the total list
-	config              Config                    // configuration struct
-	numberOfRuns        int32                     // Used to atomically make sure we only ever allow one Run() to be called
+	kinesis               kinesisiface.KinesisAPI   // interface to the kinesis service
+	dynamodb              dynamodbiface.DynamoDBAPI // interface to the dynamodb service
+	streamName            string                    // name of the kinesis stream to consume from
+	shards                []*kinesis.Shard          // all the shards in the stream, for detecting when the shards change
+	stop                  chan struct{}             // channel used to signal to all the go routines that we want to stop consuming
+	stoprequest           chan bool                 // channel used internally to signal to the main go routine to stop processing
+	records               chan *consumedRecord      // channel for the go routines to put the consumed records on
+	output                chan *consumedRecord      // unbuffered channel used to communicate from the main loop to the Next() method
+	errors                chan error                // channel used to communicate errors back to the caller
+	waitGroup             sync.WaitGroup            // waitGroup to sync the consumers go routines on
+	mainWG                sync.WaitGroup            // WaitGroup for the mainLoop
+	shardErrors           chan shardConsumerError   // all the errors found by the consumers that were not handled
+	clientsTableName      string                    // dynamo table where info about each client is stored
+	checkpointTableName   string                    // dynamo table where the checkpoints for each shard are stored
+	clientID              string                    // identifier to differentiate between the running clients
+	clientName            string                    // display name of the client - used just for debugging
+	totalClients          int                       // The number of clients that are currently working on this stream
+	thisClient            int                       // The (sorted by name) index of this client in the total list
+	config                Config                    // configuration struct
+	numberOfRuns          int32                     // Used to atomically make sure we only ever allow one Run() to be called
+	maxAgeForClientRecord time.Duration             // Cutoff for records we read from dynamodb before we assume the record is stale
+
 }
 
 // New returns a Kinsumer Interface with default kinesis and dynamodb instances, to be used in ec2 instances to get default auth and config
@@ -86,19 +88,20 @@ func NewWithInterfaces(kinesis kinesisiface.KinesisAPI, dynamodb dynamodbiface.D
 	}
 
 	consumer := &Kinsumer{
-		streamName:          streamName,
-		kinesis:             kinesis,
-		dynamodb:            dynamodb,
-		stoprequest:         make(chan bool),
-		records:             make(chan *consumedRecord, config.bufferSize),
-		output:              make(chan *consumedRecord),
-		errors:              make(chan error, 10),
-		shardErrors:         make(chan shardConsumerError, 10),
-		checkpointTableName: applicationName + "_checkpoints",
-		clientsTableName:    applicationName + "_clients",
-		clientID:            uuid.NewV4().String(),
-		clientName:          clientName,
-		config:              config,
+		streamName:            streamName,
+		kinesis:               kinesis,
+		dynamodb:              dynamodb,
+		stoprequest:           make(chan bool),
+		records:               make(chan *consumedRecord, config.bufferSize),
+		output:                make(chan *consumedRecord),
+		errors:                make(chan error, 10),
+		shardErrors:           make(chan shardConsumerError, 10),
+		checkpointTableName:   applicationName + "_checkpoints",
+		clientsTableName:      applicationName + "_clients",
+		clientID:              uuid.NewV4().String(),
+		clientName:            clientName,
+		config:                config,
+		maxAgeForClientRecord: config.shardCheckFrequency * 5,
 	}
 	return consumer, nil
 }
@@ -145,7 +148,7 @@ func (k *Kinsumer) refreshShards() (bool, error) {
 	}
 
 	//TODO: Move this out of refreshShards and into refreshClients
-	clients, err := getClients(k.dynamodb, k.clientID, k.clientsTableName, k.config.maxAgeForClientRecord)
+	clients, err := getClients(k.dynamodb, k.clientID, k.clientsTableName, k.maxAgeForClientRecord)
 	totalClients := len(clients)
 	thisClient := 0
 
@@ -282,7 +285,9 @@ func (k *Kinsumer) Run() error {
 		defer close(k.output)
 
 		shardChangeTicker := time.NewTicker(k.config.shardCheckFrequency)
-		defer shardChangeTicker.Stop()
+		defer func() {
+			shardChangeTicker.Stop()
+		}()
 
 		var record *consumedRecord
 		k.startConsumers()
@@ -318,11 +323,14 @@ func (k *Kinsumer) Run() error {
 				changed, err := k.refreshShards()
 				if err != nil {
 					k.errors <- err
-				}
-				if changed {
+				} else if changed {
+					shardChangeTicker.Stop()
 					k.stopConsumers()
 					record = nil
 					k.startConsumers()
+					// We create a new shardChangeTicker here so that the time it takes to stop and
+					// start the consumers is not included in the wait for the next tick.
+					shardChangeTicker = time.NewTicker(k.config.shardCheckFrequency)
 				}
 			}
 		}
