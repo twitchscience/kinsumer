@@ -62,6 +62,24 @@ func registerWithClientsTable(db dynamodbiface.DynamoDBAPI, id, name, tableName 
 	return nil
 }
 
+func deregisterFromClientsTable(db dynamodbiface.DynamoDBAPI, id, tableName string) error {
+	idStruct := struct{ ID string }{ID: id}
+	item, err := dynamodbattribute.ConvertToMap(idStruct)
+
+	if err != nil {
+		return err
+	}
+
+	if _, err = db.DeleteItem(&dynamodb.DeleteItemInput{
+		TableName: aws.String(tableName),
+		Key:       item,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func getClients(db dynamodbiface.DynamoDBAPI, name string, tableName string, maxAgeForClientRecord time.Duration) (clients []clientRecord, err error) {
 	filterExpression := "LastUpdate > :cutoff"
 	cutoff := strconv.FormatInt(time.Now().Add(-maxAgeForClientRecord).UnixNano(), 10)

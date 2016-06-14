@@ -276,6 +276,8 @@ func (k *Kinsumer) Run() error {
 		return err
 	}
 
+	defer deregisterFromClientsTable(k.dynamodb, k.clientID, k.clientsTableName)
+
 	k.mainWG.Add(1)
 	go func() {
 		defer k.mainWG.Done()
