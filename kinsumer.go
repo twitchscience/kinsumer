@@ -276,7 +276,11 @@ func (k *Kinsumer) Run() error {
 		return err
 	}
 
-	defer deregisterFromClientsTable(k.dynamodb, k.clientID, k.clientsTableName)
+	defer func() {
+		// Deregister is a nice to have but clients also time out if they
+		// fail to deregister.
+		_ = deregisterFromClientsTable(k.dynamodb, k.clientID, k.clientsTableName)
+	}()
 
 	k.mainWG.Add(1)
 	go func() {
