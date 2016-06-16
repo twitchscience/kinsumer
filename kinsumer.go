@@ -276,15 +276,15 @@ func (k *Kinsumer) Run() error {
 		return err
 	}
 
-	defer func() {
-		// Deregister is a nice to have but clients also time out if they
-		// fail to deregister.
-		_ = deregisterFromClientsTable(k.dynamodb, k.clientID, k.clientsTableName)
-	}()
-
 	k.mainWG.Add(1)
 	go func() {
 		defer k.mainWG.Done()
+
+		defer func() {
+			// Deregister is a nice to have but clients also time out if they
+			// fail to deregister, so ignore error here.
+			_ = deregisterFromClientsTable(k.dynamodb, k.clientID, k.clientsTableName)
+		}()
 
 		// We close k.output so that Next() stops, this is also the reason
 		// we can't allow Run() to be called after Stop() has happened
