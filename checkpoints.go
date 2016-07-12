@@ -3,10 +3,12 @@
 package kinsumer
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
@@ -72,7 +74,7 @@ func capture(
 	}
 
 	// If the record is marked as owned by someone else, and has not expired
-	if record.OwnerID != nil && *record.OwnerID != ownerID && record.LastUpdate > cutoff {
+	if record.OwnerID != nil && record.LastUpdate > cutoff {
 		// We fail to capture it
 		return nil, nil
 	}
@@ -94,10 +96,22 @@ func capture(
 		return nil, err
 	}
 
+	attrVals, err := dynamodbattribute.MarshalMap(map[string]interface{}{
+		":cutoff": aws.Int64(cutoff),
+	})
+	if err != nil {
+		return nil, err
+	}
 	if _, err = dynamodbiface.PutItem(&dynamodb.PutItemInput{
-		TableName: aws.String(tableName),
-		Item:      item,
+		TableName:                 aws.String(tableName),
+		Item:                      item,
+		ConditionExpression:       aws.String("attribute_not_exists(OwnerID) OR LastUpdate <= :cutoff"),
+		ExpressionAttributeValues: attrVals,
 	}); err != nil {
+		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "ConditionalCheckFailedException" {
+			// We failed to capture it
+			return nil, nil
+		}
 		return nil, err
 	}
 
@@ -116,44 +130,52 @@ func capture(
 	return checkpointer, nil
 }
 
-//TODO: Make sure we are the owner when committing or else we have race conditions galore
 func (cp *checkpointer) commit() error {
 	cp.mutex.Lock()
 	defer cp.mutex.Unlock()
-	if cp.dirty {
-		now := time.Now()
-
-		sn := &cp.sequenceNumber
-		if cp.sequenceNumber == "" {
-			// We are not allowed to pass empty strings to dynamo, so instead pass a nil *string
-			// to 'unset' it
-			sn = nil
-		}
-
-		item, err := dynamodbattribute.ConvertToMap(checkpointRecord{
-			Shard:          aws.StringValue(cp.shardID),
-			SequenceNumber: sn,
-			OwnerID:        &cp.ownerID,
-			OwnerName:      &cp.ownerName,
-			LastUpdate:     now.UnixNano(),
-			LastUpdateRFC:  now.UTC().Format(time.RFC1123Z),
-		})
-		if err != nil {
-			return err
-		}
-
-		if _, err = cp.dynamodb.PutItem(&dynamodb.PutItemInput{
-			TableName: aws.String(cp.tableName),
-			Item:      item,
-		}); err != nil {
-			return err
-		}
-
-		if sn != nil {
-			cp.stats.Checkpoint()
-		}
-		cp.dirty = false
+	if !cp.dirty {
+		return nil
 	}
+	now := time.Now()
+
+	sn := &cp.sequenceNumber
+	if cp.sequenceNumber == "" {
+		// We are not allowed to pass empty strings to dynamo, so instead pass a nil *string
+		// to 'unset' it
+		sn = nil
+	}
+
+	item, err := dynamodbattribute.ConvertToMap(checkpointRecord{
+		Shard:          aws.StringValue(cp.shardID),
+		SequenceNumber: sn,
+		OwnerID:        &cp.ownerID,
+		OwnerName:      &cp.ownerName,
+		LastUpdate:     now.UnixNano(),
+		LastUpdateRFC:  now.UTC().Format(time.RFC1123Z),
+	})
+	if err != nil {
+		return err
+	}
+
+	attrVals, err := dynamodbattribute.MarshalMap(map[string]interface{}{
+		":ownerID": aws.String(cp.ownerID),
+	})
+	if err != nil {
+		return err
+	}
+	if _, err = cp.dynamodb.PutItem(&dynamodb.PutItemInput{
+		TableName:                 aws.String(cp.tableName),
+		Item:                      item,
+		ConditionExpression:       aws.String("OwnerID = :ownerID"),
+		ExpressionAttributeValues: attrVals,
+	}); err != nil {
+		return fmt.Errorf("error committing checkpoint: %s", err)
+	}
+
+	if sn != nil {
+		cp.stats.Checkpoint()
+	}
+	cp.dirty = false
 
 	return nil
 }
@@ -175,11 +197,19 @@ func (cp *checkpointer) release() error {
 		return err
 	}
 
-	if _, err = cp.dynamodb.PutItem(&dynamodb.PutItemInput{
-		TableName: aws.String(cp.tableName),
-		Item:      item,
-	}); err != nil {
+	attrVals, err := dynamodbattribute.MarshalMap(map[string]interface{}{
+		":ownerID": aws.String(cp.ownerID),
+	})
+	if err != nil {
 		return err
+	}
+	if _, err = cp.dynamodb.PutItem(&dynamodb.PutItemInput{
+		TableName:                 aws.String(cp.tableName),
+		Item:                      item,
+		ConditionExpression:       aws.String("OwnerID = :ownerID"),
+		ExpressionAttributeValues: attrVals,
+	}); err != nil {
+		return fmt.Errorf("error releasing checkpoint: %s", err)
 	}
 
 	if sn != nil {

@@ -286,8 +286,8 @@ func TestSetup(t *testing.T) {
 // This is not a real final test. It's just a harness for development and to kind of think through the interface
 func TestKinsumer(t *testing.T) {
 	const (
-		numberOfEventsToTest = 123456
-		numberOfClients      = 1
+		numberOfEventsToTest = 4321
+		numberOfClients      = 3
 	)
 
 	if testing.Short() {
@@ -310,20 +310,18 @@ func TestKinsumer(t *testing.T) {
 	output := make(chan int, numberOfClients)
 	var waitGroup sync.WaitGroup
 
-	err = SpamStream(t, k, numberOfEventsToTest)
-	require.NoError(t, err, "Problems spamming stream with events")
-
 	config := NewConfig().WithBufferSize(numberOfEventsToTest)
+	config = config.WithShardCheckFrequency(500 * time.Millisecond)
 
 	for i := 0; i < numberOfClients; i++ {
-		time.Sleep(2 * time.Second) // Add the clients slowly
+		time.Sleep(100 * time.Millisecond) // Add the clients slowly
 
-		clients[i], err = NewWithInterfaces(k, d, *streamName, *applicationName, fmt.Sprintf("_test_%d", numberOfClients), config)
+		clients[i], err = NewWithInterfaces(k, d, *streamName, *applicationName, fmt.Sprintf("_test_%d", i), config)
 		if err != nil {
 			t.Fatalf("Error in New(): %s", err)
 		}
 
-		err := clients[i].Run()
+		err = clients[i].Run()
 		assert.NoError(t, err, "kinsumer.Run() failed")
 		err = clients[i].Run()
 		assert.Error(t, err, "second time calling kinsumer.Run() should fail")
@@ -333,19 +331,24 @@ func TestKinsumer(t *testing.T) {
 			defer waitGroup.Done()
 			for {
 				data, innerError := client.Next()
-				assert.NoError(t, innerError, "kinsumer.Next() failed")
+				require.NoError(t, innerError, "kinsumer.Next() failed")
 				if data == nil {
-					if innerError == nil {
-						return
-					}
-				} else {
-					idx, _ := strconv.Atoi(string(data))
-					output <- idx
-					eventsPerClient[ci]++
+					return
 				}
+				idx, _ := strconv.Atoi(string(data))
+				output <- idx
+				eventsPerClient[ci]++
 			}
 		}(clients[i], i)
+		defer func(ci int) {
+			if clients[ci] != nil {
+				clients[ci].Stop()
+			}
+		}(i)
 	}
+
+	err = SpamStream(t, k, numberOfEventsToTest)
+	require.NoError(t, err, "Problems spamming stream with events")
 
 	eventsFound := make([]bool, numberOfEventsToTest)
 	total := 0
@@ -365,14 +368,25 @@ ProcessLoop:
 		}
 	}
 
-	//require.Equal(t, numberOfEventsToTest, total, "Didn't get all events")
 	t.Logf("Got all %d out of %d events\n", total, numberOfEventsToTest)
 
-	//todo defer
-	for _, client := range clients {
+	for ci, client := range clients {
 		client.Stop()
+		clients[ci] = nil
 	}
 
+	extraEvents := 0
+	// Drain in case events duplicated, so we don't hang.
+DrainLoop:
+	for {
+		select {
+		case <-output:
+			extraEvents++
+		default:
+			break DrainLoop
+		}
+	}
+	assert.Equal(t, 0, extraEvents, "Got %d extra events afterwards", extraEvents)
 	// Make sure the go routines have finished
 	waitGroup.Wait()
 }
