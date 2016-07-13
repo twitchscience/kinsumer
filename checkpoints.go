@@ -97,15 +97,19 @@ func capture(
 	}
 
 	attrVals, err := dynamodbattribute.MarshalMap(map[string]interface{}{
-		":cutoff": aws.Int64(cutoff),
+		":cutoff":   aws.Int64(cutoff),
+		":nullType": aws.String("NULL"),
 	})
 	if err != nil {
 		return nil, err
 	}
 	if _, err = dynamodbiface.PutItem(&dynamodb.PutItemInput{
-		TableName:                 aws.String(tableName),
-		Item:                      item,
-		ConditionExpression:       aws.String("attribute_not_exists(OwnerID) OR LastUpdate <= :cutoff"),
+		TableName: aws.String(tableName),
+		Item:      item,
+		// The OwnerID doesn't exist if the entry doesn't exist, but PutItem with a marshaled
+		// checkpointRecord sets a nil OwnerID to the NULL type.
+		ConditionExpression: aws.String(
+			"attribute_not_exists(OwnerID) OR attribute_type(OwnerID, :nullType) OR LastUpdate <= :cutoff"),
 		ExpressionAttributeValues: attrVals,
 	}); err != nil {
 		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "ConditionalCheckFailedException" {
