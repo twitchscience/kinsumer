@@ -4,7 +4,6 @@ package kinsumer
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,7 +18,8 @@ import (
 )
 
 type shardConsumerError struct {
-	shardID *string
+	shardID string
+	action  string
 	err     error
 }
 
@@ -178,7 +178,7 @@ func (k *Kinsumer) refreshShards() (bool, error) {
 
 	if !changed {
 		for idx := range shards {
-			if aws.StringValue(shards[idx].ShardId) != aws.StringValue(k.shards[idx].ShardId) {
+			if shards[idx].ShardId != k.shards[idx].ShardId {
 				changed = true
 				break
 			}
@@ -199,6 +199,7 @@ func (k *Kinsumer) refreshShards() (bool, error) {
 	return changed, nil
 }
 
+// startConsumers launches a shard consumer for each shard we should own
 // TODO: Can we unit test this at all?
 func (k *Kinsumer) startConsumers() {
 	k.stop = make(chan struct{})
@@ -206,11 +207,12 @@ func (k *Kinsumer) startConsumers() {
 	for i, shard := range k.shards {
 		if (i % k.totalClients) == k.thisClient {
 			k.waitGroup.Add(1)
-			go k.consume(shard.ShardId)
+			go k.consume(aws.StringValue(shard.ShardId))
 		}
 	}
 }
 
+// stopConsumers stops all our shard consumers
 func (k *Kinsumer) stopConsumers() {
 	close(k.stop)
 	k.waitGroup.Wait()
@@ -224,6 +226,7 @@ DrainLoop:
 	}
 }
 
+// dynamoTableActive returns an error if the given table is not ACTIVE
 func (k *Kinsumer) dynamoTableActive(name string) error {
 	out, err := k.dynamodb.DescribeTable(&dynamodb.DescribeTableInput{
 		TableName: aws.String(name),
@@ -238,6 +241,7 @@ func (k *Kinsumer) dynamoTableActive(name string) error {
 	return nil
 }
 
+// kinesisStreamReady returns an error if the given stream is not ACTIVE
 func (k *Kinsumer) kinesisStreamReady() error {
 	out, err := k.kinesis.DescribeStream(&kinesis.DescribeStreamInput{
 		StreamName: aws.String(k.streamName),
@@ -323,8 +327,7 @@ func (k *Kinsumer) Run() error {
 				record.checkpointer.update(aws.StringValue(record.record.SequenceNumber))
 				record = nil
 			case se := <-k.shardErrors:
-				log.Printf("ShardError (%s): %s", *se.shardID, se.err)
-				k.errors <- se.err
+				k.errors <- fmt.Errorf("shard error (%s) in %s: %s", se.shardID, se.action, se.err)
 			case <-shardChangeTicker.C:
 				changed, err := k.refreshShards()
 				if err != nil {
@@ -345,7 +348,7 @@ func (k *Kinsumer) Run() error {
 	return nil
 }
 
-// Stop the consumption of kinesis events
+// Stop stops the consumption of kinesis events
 //TODO: Can we unit test this at all?
 func (k *Kinsumer) Stop() {
 	k.stoprequest <- true

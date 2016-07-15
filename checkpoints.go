@@ -17,7 +17,7 @@ import (
 // Note: Not thread safe!
 
 type checkpointer struct {
-	shardID               *string
+	shardID               string
 	tableName             string
 	dynamodb              dynamodbiface.DynamoDBAPI
 	sequenceNumber        string
@@ -30,12 +30,11 @@ type checkpointer struct {
 	mutex                 sync.Mutex
 }
 
-// Base values for the dynamo table, every record has to have these values.
 type checkpointRecord struct {
 	Shard          string
-	SequenceNumber *string
-	LastUpdate     int64
-	OwnerName      *string
+	SequenceNumber *string // last read sequence number, null if the shard has never been consumed
+	LastUpdate     int64   // timestamp of last commit/ownership change
+	OwnerName      *string // uuid of owning client, null if the shard is unowned
 
 	// Columns added to the table that are never used for decision making in the
 	// library, rather they are useful for manual troubleshooting
@@ -43,8 +42,10 @@ type checkpointRecord struct {
 	LastUpdateRFC string
 }
 
+// capture is a non-blocking call that attempts to capture the given shard/checkpoint.
+// It returns a checkpointer on success, or nil if it fails to capture the checkpoint
 func capture(
-	shardID *string,
+	shardID string,
 	tableName string,
 	dynamodbiface dynamodbiface.DynamoDBAPI,
 	ownerName string,
@@ -59,12 +60,12 @@ func capture(
 		TableName:      aws.String(tableName),
 		ConsistentRead: aws.Bool(true),
 		Key: map[string]*dynamodb.AttributeValue{
-			"Shard": {S: shardID},
+			"Shard": {S: aws.String(shardID)},
 		},
 	})
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error calling GetItem on shard checkpoint: %v", err)
 	}
 
 	// Convert to struct so we can work with the values
@@ -80,7 +81,7 @@ func capture(
 	}
 
 	// Make sure the Shard is set in case there was no record
-	record.Shard = aws.StringValue(shardID)
+	record.Shard = shardID
 
 	// Mark us as the owners
 	record.OwnerID = &ownerID
@@ -134,6 +135,7 @@ func capture(
 	return checkpointer, nil
 }
 
+// commit writes the latest SequenceNumber consumed to dynamo and updates LastUpdate.
 func (cp *checkpointer) commit() error {
 	cp.mutex.Lock()
 	defer cp.mutex.Unlock()
@@ -150,7 +152,7 @@ func (cp *checkpointer) commit() error {
 	}
 
 	item, err := dynamodbattribute.ConvertToMap(checkpointRecord{
-		Shard:          aws.StringValue(cp.shardID),
+		Shard:          cp.shardID,
 		SequenceNumber: sn,
 		OwnerID:        &cp.ownerID,
 		OwnerName:      &cp.ownerName,
@@ -184,6 +186,7 @@ func (cp *checkpointer) commit() error {
 	return nil
 }
 
+// release releases our ownership of the checkpoint in dynamo so another client can take it
 func (cp *checkpointer) release() error {
 	now := time.Now()
 
@@ -192,7 +195,7 @@ func (cp *checkpointer) release() error {
 		sn = nil
 	}
 	item, err := dynamodbattribute.ConvertToMap(checkpointRecord{
-		Shard:          aws.StringValue(cp.shardID),
+		Shard:          cp.shardID,
 		SequenceNumber: sn,
 		LastUpdate:     now.UnixNano(),
 		LastUpdateRFC:  now.UTC().Format(time.RFC1123Z),
@@ -225,6 +228,7 @@ func (cp *checkpointer) release() error {
 	return nil
 }
 
+// update updates the current sequenceNumber of the checkpoint, marking it dirty if necessary
 func (cp *checkpointer) update(sequenceNumber string) {
 	cp.mutex.Lock()
 	defer cp.mutex.Unlock()

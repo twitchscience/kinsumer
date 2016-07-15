@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/twitchscience/kinsumer/mocks"
-
-	"github.com/aws/aws-sdk-go/aws"
 )
 
 func TestCheckpointer(t *testing.T) {
@@ -16,7 +14,7 @@ func TestCheckpointer(t *testing.T) {
 	mock := mocks.NewMockDynamo([]string{table})
 	stats := &NoopStatReceiver{}
 
-	cp, err := capture(aws.String("shard"), table, mock, "ownerName", "ownerId", 3*time.Minute, stats)
+	cp, err := capture("shard", table, mock, "ownerName", "ownerId", 3*time.Minute, stats)
 
 	// Initially, we expect that there is no record, so our new record should have no sequence number
 	if err != nil {
@@ -73,7 +71,7 @@ func TestCheckpointer(t *testing.T) {
 	})
 
 	// Try to get another checkpointer for this shard, should not succceed but not error
-	cp2, err := capture(aws.String("shard"), table, mock, "differentOwner", "differentOwnerId", 3*time.Minute, stats)
+	cp2, err := capture("shard", table, mock, "differentOwner", "differentOwnerId", 3*time.Minute, stats)
 	if err != nil {
 		t.Errorf("cp2 first attempt err=%q", err)
 	}

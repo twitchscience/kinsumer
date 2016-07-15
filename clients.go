@@ -39,6 +39,7 @@ func (sc sortableClients) Swap(left, right int) {
 	sc[left], sc[right] = sc[right], sc[left]
 }
 
+// registerWithClientsTable adds or updates our client with a current LastUpdate in dynamo
 func registerWithClientsTable(db dynamodbiface.DynamoDBAPI, id, name, tableName string) error {
 	now := time.Now()
 	item, err := dynamodbattribute.ConvertToMap(clientRecord{
@@ -62,6 +63,7 @@ func registerWithClientsTable(db dynamodbiface.DynamoDBAPI, id, name, tableName 
 	return nil
 }
 
+// deregisterWithClientsTable deletes our client from dynamo
 func deregisterFromClientsTable(db dynamodbiface.DynamoDBAPI, id, tableName string) error {
 	idStruct := struct{ ID string }{ID: id}
 	item, err := dynamodbattribute.ConvertToMap(idStruct)
@@ -80,6 +82,7 @@ func deregisterFromClientsTable(db dynamodbiface.DynamoDBAPI, id, tableName stri
 	return nil
 }
 
+// getClients returns a sorted list of all recently-updated clients in dynamo
 func getClients(db dynamodbiface.DynamoDBAPI, name string, tableName string, maxAgeForClientRecord time.Duration) (clients []clientRecord, err error) {
 	filterExpression := "LastUpdate > :cutoff"
 	cutoff := strconv.FormatInt(time.Now().Add(-maxAgeForClientRecord).UnixNano(), 10)
