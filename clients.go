@@ -15,6 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 )
 
+const clientReapAge = 48 * time.Hour
+
 type clientRecord struct {
 	ID         string
 	LastUpdate int64
@@ -120,4 +122,61 @@ func getClients(db dynamodbiface.DynamoDBAPI, name string, tableName string, max
 
 	sort.Sort(sortableClients(clients))
 	return clients, nil
+}
+
+// reapClients deletes any sufficiently old clients from dynamo
+func reapClients(db dynamodbiface.DynamoDBAPI, tableName string) error {
+	filterExpression := "LastUpdate < :cutoff"
+	cutoff := strconv.FormatInt(time.Now().Add(-clientReapAge).UnixNano(), 10)
+
+	params := &dynamodb.ScanInput{
+		TableName:        aws.String(tableName),
+		ConsistentRead:   aws.Bool(true),
+		FilterExpression: aws.String(filterExpression),
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":cutoff": {N: &cutoff},
+		},
+	}
+
+	var clients []clientRecord
+	var innerError error
+	err := db.ScanPages(params, func(p *dynamodb.ScanOutput, lastPage bool) (shouldContinue bool) {
+		for _, item := range p.Items {
+			var record clientRecord
+			innerError = dynamodbattribute.UnmarshalMap(item, &record)
+			if innerError != nil {
+				return false
+			}
+			clients = append(clients, record)
+		}
+
+		return !lastPage
+	})
+
+	if innerError != nil {
+		return innerError
+	}
+
+	if err != nil {
+		return err
+	}
+
+	for _, client := range clients {
+		idStruct := struct{ ID string }{ID: client.ID}
+		item, err := dynamodbattribute.ConvertToMap(idStruct)
+		if err != nil {
+			return err
+		}
+		if _, err = db.DeleteItem(&dynamodb.DeleteItemInput{
+			TableName:           aws.String(tableName),
+			Key:                 item,
+			ConditionExpression: aws.String(filterExpression),
+			ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+				":cutoff": {N: &cutoff},
+			},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

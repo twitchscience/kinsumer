@@ -251,3 +251,40 @@ func (cp *checkpointer) finish(sequenceNumber string) {
 	cp.finalSequenceNumber = sequenceNumber
 	cp.finished = true
 }
+
+// loadCheckpoints returns checkpoint records from dynamo mapped by shard id.
+func loadCheckpoints(db dynamodbiface.DynamoDBAPI, tableName string) (map[string]*checkpointRecord, error) {
+	params := &dynamodb.ScanInput{
+		TableName:      aws.String(tableName),
+		ConsistentRead: aws.Bool(true),
+	}
+
+	var records []*checkpointRecord
+	var innerError error
+	err := db.ScanPages(params, func(p *dynamodb.ScanOutput, lastPage bool) (shouldContinue bool) {
+		for _, item := range p.Items {
+			var record checkpointRecord
+			innerError = dynamodbattribute.UnmarshalMap(item, &record)
+			if innerError != nil {
+				return false
+			}
+			records = append(records, &record)
+		}
+
+		return !lastPage
+	})
+
+	if innerError != nil {
+		return nil, innerError
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	checkpointMap := make(map[string]*checkpointRecord, len(records))
+	for _, checkpoint := range records {
+		checkpointMap[checkpoint.Shard] = checkpoint
+	}
+	return checkpointMap, nil
+}

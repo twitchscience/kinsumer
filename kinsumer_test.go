@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/aws/aws-sdk-go/service/kinesis"
 	"github.com/aws/aws-sdk-go/service/kinesis/kinesisiface"
@@ -31,6 +33,11 @@ var (
 	applicationName       = flag.String("application_name", "kinsumer_test", "Name of the application, will impact dynamo table names")
 	dynamoSuffixes        = []string{"_checkpoints", "_clients", "_metadata"}
 	dynamoKeys            = map[string]string{"_checkpoints": "Shard", "_clients": "ID", "_metadata": "Key"}
+)
+
+const (
+	shardCount int64 = 10
+	shardLimit int64 = 100
 )
 
 func TestNewWithInterfaces(t *testing.T) {
@@ -79,7 +86,7 @@ func CreateFreshStream(t *testing.T, k kinesisiface.KinesisAPI) error {
 	}
 
 	_, err = k.CreateStream(&kinesis.CreateStreamInput{
-		ShardCount: aws.Int64(10),
+		ShardCount: aws.Int64(shardCount),
 		StreamName: streamName,
 	})
 
@@ -104,7 +111,7 @@ func CreateFreshTable(t *testing.T, d dynamodbiface.DynamoDBAPI, tableName strin
 		}
 	} else {
 		// Wait for table to be deleted
-		time.Sleep(1 * time.Second)
+		time.Sleep(*resourceChangeTimeout)
 	}
 
 	_, err = d.CreateTable(&dynamodb.CreateTableInput{
@@ -305,17 +312,18 @@ func TestKinsumer(t *testing.T) {
 
 	config := NewConfig().WithBufferSize(numberOfEventsToTest)
 	config = config.WithShardCheckFrequency(500 * time.Millisecond)
+	config = config.WithLeaderActionFrequency(500 * time.Millisecond)
 
 	for i := 0; i < numberOfClients; i++ {
-		time.Sleep(100 * time.Millisecond) // Add the clients slowly
-
-		clients[i], err = NewWithInterfaces(k, d, *streamName, *applicationName, fmt.Sprintf("_test_%d", i), config)
-		if err != nil {
-			t.Fatalf("Error in New(): %s", err)
+		if i > 0 {
+			time.Sleep(50 * time.Millisecond) // Add the clients slowly
 		}
 
+		clients[i], err = NewWithInterfaces(k, d, *streamName, *applicationName, fmt.Sprintf("test_%d", i), config)
+		require.NoError(t, err, "NewWithInterfaces() failed")
+
 		err = clients[i].Run()
-		assert.NoError(t, err, "kinsumer.Run() failed")
+		require.NoError(t, err, "kinsumer.Run() failed")
 		err = clients[i].Run()
 		assert.Error(t, err, "second time calling kinsumer.Run() should fail")
 
@@ -343,6 +351,289 @@ func TestKinsumer(t *testing.T) {
 	err = SpamStream(t, k, numberOfEventsToTest)
 	require.NoError(t, err, "Problems spamming stream with events")
 
+	readEvents(t, output, numberOfEventsToTest)
+
+	for ci, client := range clients {
+		client.Stop()
+		clients[ci] = nil
+	}
+
+	drain(t, output)
+
+	// Make sure the go routines have finished
+	waitGroup.Wait()
+}
+
+// TestLeader is an integration test of leadership claiming and deleting old clients.
+func TestLeader(t *testing.T) {
+	const (
+		numberOfEventsToTest = 4321
+		numberOfClients      = 2
+	)
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	k, d := KinesisAndDynamoInstances()
+
+	defer func() {
+		err := CleanupTestEnvironment(t, k, d)
+		require.NoError(t, err, "Problems cleaning up the test environment")
+	}()
+
+	err := SetupTestEnvironment(t, k, d)
+	require.NoError(t, err, "Problems setting up the test environment")
+
+	clients := make([]*Kinsumer, numberOfClients)
+
+	output := make(chan int, numberOfClients)
+	var waitGroup sync.WaitGroup
+
+	// Put an old client that should be deleted.
+	now := time.Now().Add(-time.Hour * 24 * 7)
+	item, err := dynamodbattribute.MarshalMap(clientRecord{
+		ID:            "Old",
+		Name:          "Old",
+		LastUpdate:    now.UnixNano(),
+		LastUpdateRFC: now.UTC().Format(time.RFC1123Z),
+	})
+	require.NoError(t, err, "Problems converting old client")
+
+	clientsTableName := aws.String(*streamName + "_clients")
+	_, err = d.PutItem(&dynamodb.PutItemInput{
+		TableName: clientsTableName,
+		Item:      item,
+	})
+	require.NoError(t, err, "Problems putting old client")
+
+	config := NewConfig().WithBufferSize(numberOfEventsToTest)
+	config = config.WithShardCheckFrequency(500 * time.Millisecond)
+	config = config.WithLeaderActionFrequency(500 * time.Millisecond)
+
+	for i := 0; i < numberOfClients; i++ {
+		if i > 0 {
+			time.Sleep(50 * time.Millisecond) // Add the clients slowly
+		}
+
+		clients[i], err = NewWithInterfaces(k, d, *streamName, *applicationName, fmt.Sprintf("test_%d", i), config)
+		require.NoError(t, err, "NewWithInterfaces() failed")
+		clients[i].clientID = strconv.Itoa(i + 1)
+
+		err = clients[i].Run()
+		require.NoError(t, err, "kinsumer.Run() failed")
+
+		waitGroup.Add(1)
+		go func(client *Kinsumer, ci int) {
+			defer waitGroup.Done()
+			for {
+				data, innerError := client.Next()
+				require.NoError(t, innerError, "kinsumer.Next() failed")
+				if data == nil {
+					return
+				}
+				idx, _ := strconv.Atoi(string(data))
+				output <- idx
+			}
+		}(clients[i], i)
+		defer func(ci int) {
+			if clients[ci] != nil {
+				clients[ci].Stop()
+			}
+		}(i)
+	}
+
+	err = SpamStream(t, k, numberOfEventsToTest)
+	require.NoError(t, err, "Problems spamming stream with events")
+
+	readEvents(t, output, numberOfEventsToTest)
+
+	resp, err := d.GetItem(&dynamodb.GetItemInput{
+		TableName:      clientsTableName,
+		ConsistentRead: aws.Bool(true),
+		Key: map[string]*dynamodb.AttributeValue{
+			"ID": {S: aws.String("Old")},
+		},
+	})
+	require.NoError(t, err, "Problem getting old client")
+	require.Equal(t, 0, len(resp.Item), "Old client was not deleted")
+
+	assert.Equal(t, true, clients[0].isLeader, "First client is not leader")
+	assert.Equal(t, false, clients[1].isLeader, "Second leader is also leader")
+
+	c, err := NewWithInterfaces(k, d, *streamName, *applicationName, fmt.Sprintf("_test_%d", numberOfClients), config)
+	require.NoError(t, err, "NewWithInterfaces() failed")
+	c.clientID = "0"
+	err = c.Run()
+	require.NoError(t, err, "kinsumer.Run() failed")
+	require.Equal(t, true, c.isLeader, "New client is not leader")
+	_, err = clients[0].refreshShards()
+	require.NoError(t, err, "Problem refreshing shards of original leader")
+	require.Equal(t, false, clients[0].isLeader, "Original leader is still leader")
+	c.Stop()
+
+	for ci, client := range clients {
+		client.Stop()
+		clients[ci] = nil
+	}
+
+	drain(t, output)
+	// Make sure the go routines have finished
+	waitGroup.Wait()
+}
+
+// TestSplit is an integration test of merging shards, checking the closed and new shards are handled correctly.
+func TestSplit(t *testing.T) {
+	const (
+		numberOfEventsToTest = 4321
+		numberOfClients      = 3
+	)
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	k, d := KinesisAndDynamoInstances()
+
+	defer func() {
+		err := CleanupTestEnvironment(t, k, d)
+		require.NoError(t, err, "Problems cleaning up the test environment")
+	}()
+
+	err := SetupTestEnvironment(t, k, d)
+	require.NoError(t, err, "Problems setting up the test environment")
+
+	clients := make([]*Kinsumer, numberOfClients)
+
+	output := make(chan int, numberOfClients)
+	var waitGroup sync.WaitGroup
+
+	config := NewConfig().WithBufferSize(numberOfEventsToTest)
+	config = config.WithShardCheckFrequency(500 * time.Millisecond)
+	config = config.WithLeaderActionFrequency(500 * time.Millisecond)
+	config = config.WithCommitFrequency(50 * time.Millisecond)
+
+	for i := 0; i < numberOfClients; i++ {
+		if i > 0 {
+			time.Sleep(50 * time.Millisecond) // Add the clients slowly
+		}
+
+		clients[i], err = NewWithInterfaces(k, d, *streamName, *applicationName, fmt.Sprintf("test_%d", i), config)
+		require.NoError(t, err, "NewWithInterfaces() failed")
+		clients[i].clientID = strconv.Itoa(i + 1)
+
+		err = clients[i].Run()
+		require.NoError(t, err, "kinsumer.Run() failed")
+
+		waitGroup.Add(1)
+		go func(client *Kinsumer, ci int) {
+			defer waitGroup.Done()
+			for {
+				data, innerError := client.Next()
+				require.NoError(t, innerError, "kinsumer.Next() failed")
+				if data == nil {
+					return
+				}
+				idx, _ := strconv.Atoi(string(data))
+				output <- idx
+			}
+		}(clients[i], i)
+		defer func(ci int) {
+			if clients[ci] != nil {
+				clients[ci].Stop()
+			}
+		}(i)
+	}
+
+	err = SpamStream(t, k, numberOfEventsToTest)
+	require.NoError(t, err, "Problems spamming stream with events")
+
+	readEvents(t, output, numberOfEventsToTest)
+
+	desc, err := k.DescribeStream(&kinesis.DescribeStreamInput{
+		StreamName: streamName,
+		Limit:      aws.Int64(shardLimit),
+	})
+	require.NoError(t, err, "Error describing stream")
+	shards := desc.StreamDescription.Shards
+	shardMap := make(map[string]*kinesis.Shard)
+	for _, shard := range shards {
+		shardMap[*shard.ShardId] = shard
+	}
+
+	require.True(t, len(shards) >= 2, "Fewer than 2 shards")
+
+	_, err = k.MergeShards(&kinesis.MergeShardsInput{
+		StreamName:           streamName,
+		ShardToMerge:         aws.String(*shards[0].ShardId),
+		AdjacentShardToMerge: aws.String(*shards[1].ShardId),
+	})
+	require.NoError(t, err, "Problem merging shards")
+
+	require.True(t, shardCount <= shardLimit, "Too many shards")
+	timeout := time.After(time.Second)
+	for {
+		desc, err = k.DescribeStream(&kinesis.DescribeStreamInput{
+			StreamName: streamName,
+			Limit:      aws.Int64(shardLimit),
+		})
+		require.NoError(t, err, "Error describing stream")
+		if *desc.StreamDescription.StreamStatus == "ACTIVE" {
+			break
+		}
+		select {
+		case <-timeout:
+			require.FailNow(t, "Timedout after merging shards")
+		default:
+			time.Sleep(*resourceChangeTimeout)
+		}
+	}
+	newShards := desc.StreamDescription.Shards
+	require.Equal(t, shardCount+1, int64(len(newShards)), "Wrong number of shards after merging")
+
+	err = SpamStream(t, k, numberOfEventsToTest)
+	require.NoError(t, err, "Problems spamming stream with events")
+
+	readEvents(t, output, numberOfEventsToTest)
+
+	// Validate finished shards are no longer in the cache
+	var expectedShards []string
+	for _, shard := range newShards {
+		if *shard.ShardId != *shards[0].ShardId && *shard.ShardId != *shards[1].ShardId {
+			expectedShards = append(expectedShards, *shard.ShardId)
+		}
+	}
+	sort.Strings(expectedShards)
+	cachedShards, err := loadShardIDsFromDynamo(d, clients[0].metadataTableName)
+	require.NoError(t, err, "Error loading cached shard IDs")
+	require.Equal(t, expectedShards, cachedShards, "Finished shards are still in the cache")
+
+	for ci, client := range clients {
+		client.Stop()
+		clients[ci] = nil
+	}
+
+	drain(t, output)
+	// Make sure the go routines have finished
+	waitGroup.Wait()
+}
+
+func drain(t *testing.T, output chan int) {
+	extraEvents := 0
+	// Drain in case events duplicated, so we don't hang.
+DrainLoop:
+	for {
+		select {
+		case <-output:
+			extraEvents++
+		default:
+			break DrainLoop
+		}
+	}
+	assert.Equal(t, 0, extraEvents, "Got %d extra events afterwards", extraEvents)
+}
+
+func readEvents(t *testing.T, output chan int, numberOfEventsToTest int) {
 	eventsFound := make([]bool, numberOfEventsToTest)
 	total := 0
 
@@ -356,30 +647,10 @@ ProcessLoop:
 			if total == numberOfEventsToTest {
 				break ProcessLoop
 			}
-		case <-time.After(10 * time.Second):
+		case <-time.After(3 * time.Second):
 			break ProcessLoop
 		}
 	}
 
 	t.Logf("Got all %d out of %d events\n", total, numberOfEventsToTest)
-
-	for ci, client := range clients {
-		client.Stop()
-		clients[ci] = nil
-	}
-
-	extraEvents := 0
-	// Drain in case events duplicated, so we don't hang.
-DrainLoop:
-	for {
-		select {
-		case <-output:
-			extraEvents++
-		default:
-			break DrainLoop
-		}
-	}
-	assert.Equal(t, 0, extraEvents, "Got %d extra events afterwards", extraEvents)
-	// Make sure the go routines have finished
-	waitGroup.Wait()
 }
