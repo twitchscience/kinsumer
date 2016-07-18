@@ -28,6 +28,8 @@ type checkpointer struct {
 	captured              bool
 	dirty                 bool
 	mutex                 sync.Mutex
+	finished              bool
+	finalSequenceNumber   string
 }
 
 type checkpointRecord struct {
@@ -35,11 +37,13 @@ type checkpointRecord struct {
 	SequenceNumber *string // last read sequence number, null if the shard has never been consumed
 	LastUpdate     int64   // timestamp of last commit/ownership change
 	OwnerName      *string // uuid of owning client, null if the shard is unowned
+	Finished       *int64  // timestamp of when the shard was fully consumed, null if it's active
 
 	// Columns added to the table that are never used for decision making in the
 	// library, rather they are useful for manual troubleshooting
 	OwnerID       *string
 	LastUpdateRFC string
+	FinishedRFC   *string
 }
 
 // capture is a non-blocking call that attempts to capture the given shard/checkpoint.
@@ -136,11 +140,13 @@ func capture(
 }
 
 // commit writes the latest SequenceNumber consumed to dynamo and updates LastUpdate.
-func (cp *checkpointer) commit() error {
+// Returns true if we set Finished in dynamo because the library user finished consuming the shard.
+// Once that has happened, the checkpointer should be released and never grabbed again.
+func (cp *checkpointer) commit() (bool, error) {
 	cp.mutex.Lock()
 	defer cp.mutex.Unlock()
-	if !cp.dirty {
-		return nil
+	if !cp.dirty && !cp.finished {
+		return false, nil
 	}
 	now := time.Now()
 
@@ -151,23 +157,31 @@ func (cp *checkpointer) commit() error {
 		sn = nil
 	}
 
-	item, err := dynamodbattribute.ConvertToMap(checkpointRecord{
+	record := checkpointRecord{
 		Shard:          cp.shardID,
 		SequenceNumber: sn,
-		OwnerID:        &cp.ownerID,
-		OwnerName:      &cp.ownerName,
 		LastUpdate:     now.UnixNano(),
 		LastUpdateRFC:  now.UTC().Format(time.RFC1123Z),
-	})
+	}
+	finished := false
+	if cp.finished && (cp.sequenceNumber == cp.finalSequenceNumber || cp.finalSequenceNumber == "") {
+		record.Finished = aws.Int64(now.UnixNano())
+		record.FinishedRFC = aws.String(now.UTC().Format(time.RFC1123Z))
+		finished = true
+	}
+	record.OwnerID = &cp.ownerID
+	record.OwnerName = &cp.ownerName
+
+	item, err := dynamodbattribute.MarshalMap(&record)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	attrVals, err := dynamodbattribute.MarshalMap(map[string]interface{}{
 		":ownerID": aws.String(cp.ownerID),
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err = cp.dynamodb.PutItem(&dynamodb.PutItemInput{
 		TableName:                 aws.String(cp.tableName),
@@ -175,51 +189,44 @@ func (cp *checkpointer) commit() error {
 		ConditionExpression:       aws.String("OwnerID = :ownerID"),
 		ExpressionAttributeValues: attrVals,
 	}); err != nil {
-		return fmt.Errorf("error committing checkpoint: %s", err)
+		return false, fmt.Errorf("error committing checkpoint: %s", err)
 	}
 
 	if sn != nil {
 		cp.stats.Checkpoint()
 	}
 	cp.dirty = false
-
-	return nil
+	return finished, nil
 }
 
 // release releases our ownership of the checkpoint in dynamo so another client can take it
 func (cp *checkpointer) release() error {
 	now := time.Now()
 
-	sn := &cp.sequenceNumber
-	if *sn == "" {
-		sn = nil
-	}
-	item, err := dynamodbattribute.ConvertToMap(checkpointRecord{
-		Shard:          cp.shardID,
-		SequenceNumber: sn,
-		LastUpdate:     now.UnixNano(),
-		LastUpdateRFC:  now.UTC().Format(time.RFC1123Z),
-	})
-	if err != nil {
-		return err
-	}
-
 	attrVals, err := dynamodbattribute.MarshalMap(map[string]interface{}{
-		":ownerID": aws.String(cp.ownerID),
+		":ownerID":        aws.String(cp.ownerID),
+		":sequenceNumber": aws.String(cp.sequenceNumber),
+		":lastUpdate":     aws.Int64(now.UnixNano()),
+		":lastUpdateRFC":  aws.String(now.UTC().Format(time.RFC1123Z)),
 	})
 	if err != nil {
 		return err
 	}
-	if _, err = cp.dynamodb.PutItem(&dynamodb.PutItemInput{
-		TableName:                 aws.String(cp.tableName),
-		Item:                      item,
+	if _, err = cp.dynamodb.UpdateItem(&dynamodb.UpdateItemInput{
+		TableName: aws.String(cp.tableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			"Shard": {S: aws.String(cp.shardID)},
+		},
+		UpdateExpression: aws.String("REMOVE OwnerID, OwnerName " +
+			"SET LastUpdate = :lastUpdate, LastUpdateRFC = :lastUpdateRFC, " +
+			"SequenceNumber = :sequenceNumber"),
 		ConditionExpression:       aws.String("OwnerID = :ownerID"),
 		ExpressionAttributeValues: attrVals,
 	}); err != nil {
 		return fmt.Errorf("error releasing checkpoint: %s", err)
 	}
 
-	if sn != nil {
+	if cp.sequenceNumber != "" {
 		cp.stats.Checkpoint()
 	}
 
@@ -234,4 +241,13 @@ func (cp *checkpointer) update(sequenceNumber string) {
 	defer cp.mutex.Unlock()
 	cp.dirty = cp.dirty || cp.sequenceNumber != sequenceNumber
 	cp.sequenceNumber = sequenceNumber
+}
+
+// finish marks the given sequence number as the final one for the shard.
+// sequenceNumber is the empty string if we never read anything from the shard.
+func (cp *checkpointer) finish(sequenceNumber string) {
+	cp.mutex.Lock()
+	defer cp.mutex.Unlock()
+	cp.finalSequenceNumber = sequenceNumber
+	cp.finished = true
 }

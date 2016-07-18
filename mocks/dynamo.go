@@ -92,7 +92,7 @@ func (d *MockDynamo) recordCall(operation string, in, out interface{}, err error
 	})
 }
 
-// PutItem mocks the dynamoc PutItem method
+// PutItem mocks the dynamo PutItem method
 func (d *MockDynamo) PutItem(in *dynamodb.PutItemInput) (out *dynamodb.PutItemOutput, err error) {
 	defer d.recordCall("PutItem", in, out, err)
 	if in.TableName == nil {
@@ -113,6 +113,19 @@ func (d *MockDynamo) PutItem(in *dynamodb.PutItemInput) (out *dynamodb.PutItemOu
 
 	d.tables[tableName] = append(d.tables[tableName], in.Item)
 	return &dynamodb.PutItemOutput{}, nil
+}
+
+// UpdateItem mocks the dynamo UpdateItem method
+func (d *MockDynamo) UpdateItem(in *dynamodb.UpdateItemInput) (out *dynamodb.UpdateItemOutput, err error) {
+	defer d.recordCall("UpdateItem", in, out, err)
+	if in.TableName == nil {
+		return nil, errMissingParameter("TableName")
+	}
+	if in.Key == nil {
+		return nil, errMissingParameter("Key")
+	}
+
+	return &dynamodb.UpdateItemOutput{}, nil
 }
 
 // GetItem mocks the dynamo GetItem method

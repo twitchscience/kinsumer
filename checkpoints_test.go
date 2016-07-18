@@ -34,7 +34,7 @@ func TestCheckpointer(t *testing.T) {
 
 	// Now actually commit.
 	mocks.AssertRequestMade(t, mock.(*mocks.MockDynamo), "commit(seq1)", func() {
-		if err = cp.commit(); err != nil {
+		if _, err = cp.commit(); err != nil {
 			t.Errorf("commit seq1 err=%q", err)
 		}
 	})
@@ -44,7 +44,7 @@ func TestCheckpointer(t *testing.T) {
 
 	// Since the sequence number hasn't changed, committing shouldn't make a request.
 	mocks.AssertNoRequestsMade(t, mock.(*mocks.MockDynamo), "commit unchanged sequence number", func() {
-		if err = cp.commit(); err != nil {
+		if _, err = cp.commit(); err != nil {
 			t.Errorf("commit unchanged err=%q", err)
 		}
 	})
@@ -54,7 +54,7 @@ func TestCheckpointer(t *testing.T) {
 
 	// committing should trigger a request
 	mocks.AssertRequestMade(t, mock.(*mocks.MockDynamo), "commit(seq2)", func() {
-		if err = cp.commit(); err != nil {
+		if _, err = cp.commit(); err != nil {
 			t.Errorf("commit seq2 err=%q", err)
 		}
 	})
@@ -65,7 +65,7 @@ func TestCheckpointer(t *testing.T) {
 
 	// This should still trigger an update
 	mocks.AssertRequestMade(t, mock.(*mocks.MockDynamo), "commit(seq3)", func() {
-		if err = cp.commit(); err != nil {
+		if _, err = cp.commit(); err != nil {
 			t.Errorf("commit seq3 err=%q", err)
 		}
 	})

@@ -124,6 +124,8 @@ func (k *Kinsumer) consume(shardID string) {
 
 	sequenceNumber := checkpointer.sequenceNumber
 
+	// finished means we have reached the end of the shard but haven't necessarily processed/committed everything
+	finished := false
 	// Make sure we release the shard when we are done.
 	defer func() {
 		innerErr := checkpointer.release()
@@ -145,13 +147,13 @@ func (k *Kinsumer) consume(shardID string) {
 
 	retryCount := 0
 
+	var lastSeqNum string
 mainloop:
 	for {
-		// We have reached the end of the shard's data. Stop processing.
-		if iterator == "" {
-			//TODO: Note that right now this will cause uneven work on clients as the balancing algorithm won't
-			//      take fully consumed (split/merged) shards into account.
-			break
+		// We have reached the end of the shard's data. Set Finished in dynamo and stop processing.
+		if iterator == "" && !finished {
+			checkpointer.finish(lastSeqNum)
+			finished = true
 		}
 
 		// Handle async actions, and throttle requests to keep kinesis happy
@@ -159,9 +161,12 @@ mainloop:
 		case <-k.stop:
 			return
 		case <-commitTicker.C:
-			err := checkpointer.commit()
+			finishCommitted, err := checkpointer.commit()
 			if err != nil {
 				k.shardErrors <- shardConsumerError{shardID: shardID, action: "checkpointer.commit", err: err}
+				return
+			}
+			if finishCommitted {
 				return
 			}
 		case <-time.After(nextThrottleDelay):
@@ -169,6 +174,10 @@ mainloop:
 
 		// Reset the throttleDelay
 		nextThrottleDelay = k.config.throttleDelay
+
+		if finished {
+			continue
+		}
 
 		// Get records from kinesis
 		records, next, lag, err := getRecords(k.kinesis, iterator)
@@ -216,6 +225,9 @@ mainloop:
 
 			// Since we got records, let's hit kinesis again.
 			nextThrottleDelay = 0
+
+			// Update the last sequence number we saw, in case we reached the end of the stream.
+			lastSeqNum = aws.StringValue(records[len(records)-1].SequenceNumber)
 		}
 		iterator = next
 	}
