@@ -44,16 +44,20 @@ type Kinsumer struct {
 	waitGroup             sync.WaitGroup            // waitGroup to sync the consumers go routines on
 	mainWG                sync.WaitGroup            // WaitGroup for the mainLoop
 	shardErrors           chan shardConsumerError   // all the errors found by the consumers that were not handled
-	clientsTableName      string                    // dynamo table where info about each client is stored
-	checkpointTableName   string                    // dynamo table where the checkpoints for each shard are stored
+	clientsTableName      string                    // dynamo table of info about each client
+	checkpointTableName   string                    // dynamo table of the checkpoints for each shard
+	metadataTableName     string                    // dynamo table of metadata about the leader
 	clientID              string                    // identifier to differentiate between the running clients
 	clientName            string                    // display name of the client - used just for debugging
 	totalClients          int                       // The number of clients that are currently working on this stream
 	thisClient            int                       // The (sorted by name) index of this client in the total list
 	config                Config                    // configuration struct
 	numberOfRuns          int32                     // Used to atomically make sure we only ever allow one Run() to be called
-	maxAgeForClientRecord time.Duration             // Cutoff for records we read from dynamodb before we assume the record is stale
-
+	isLeader              bool                      // Whether this client is the leader
+	leaderLost            chan bool                 // Channel that receives an event when the node loses leadership
+	leaderWG              sync.WaitGroup            // waitGroup for the leader loop
+	maxAgeForClientRecord time.Duration             // Cutoff for client/checkpoint records we read from dynamodb before we assume the record is stale
+	maxAgeForLeaderRecord time.Duration             // Cutoff for leader/shard cache records we read from dynamodb before we assume the record is stale
 }
 
 // New returns a Kinsumer Interface with default kinesis and dynamodb instances, to be used in ec2 instances to get default auth and config
@@ -98,14 +102,18 @@ func NewWithInterfaces(kinesis kinesisiface.KinesisAPI, dynamodb dynamodbiface.D
 		shardErrors:           make(chan shardConsumerError, 10),
 		checkpointTableName:   applicationName + "_checkpoints",
 		clientsTableName:      applicationName + "_clients",
+		metadataTableName:     applicationName + "_metadata",
 		clientID:              uuid.NewV4().String(),
 		clientName:            clientName,
 		config:                config,
 		maxAgeForClientRecord: config.shardCheckFrequency * 5,
+		maxAgeForLeaderRecord: config.leaderActionFrequency * 5,
 	}
 	return consumer, nil
 }
 
+// refreshShards registers our client, refreshes the lists of clients and shards, checks if we
+// have become/unbecome the leader, and returns whether the shards/clients changed.
 //TODO: Write unit test - needs dynamo _and_ kinesis mocking
 func (k *Kinsumer) refreshShards() (bool, error) {
 	var (
@@ -170,6 +178,12 @@ func (k *Kinsumer) refreshShards() (bool, error) {
 
 	if err != nil {
 		return false, err
+	}
+
+	if thisClient == 0 && !k.isLeader {
+		k.becomeLeader()
+	} else if thisClient != 0 && k.isLeader {
+		k.unbecomeLeader()
 	}
 
 	changed := (totalClients != k.totalClients) ||
@@ -258,7 +272,9 @@ func (k *Kinsumer) kinesisStreamReady() error {
 	return nil
 }
 
-// Run the kinesis consumer process. This is a blocking call, use Stop() to force it to return
+// Run runs the main kinesis consumer process. This is a non-blocking call, use Stop() to force it to return.
+// This goroutine is responsible for startin/stopping consumers, aggregating all consumers' records,
+// updating checkpointers as records are consumed, and refreshing our shard/client list and leadership
 //TODO: Can we unit test this at all?
 func (k *Kinsumer) Run() error {
 	if err := k.dynamoTableActive(k.checkpointTableName); err != nil {
@@ -287,7 +303,18 @@ func (k *Kinsumer) Run() error {
 		defer func() {
 			// Deregister is a nice to have but clients also time out if they
 			// fail to deregister, so ignore error here.
-			_ = deregisterFromClientsTable(k.dynamodb, k.clientID, k.clientsTableName)
+			err := deregisterFromClientsTable(k.dynamodb, k.clientID, k.clientsTableName)
+			if err != nil {
+				k.errors <- fmt.Errorf("error deregistering client: %s", err)
+			}
+			if k.isLeader {
+				close(k.leaderLost)
+				k.leaderLost = nil
+				k.isLeader = false
+			}
+			// Do this outside the k.isLeader check in case k.isLeader was false because
+			// we lost leadership but haven't had time to shutdown the goroutine yet.
+			k.leaderWG.Wait()
 		}()
 
 		// We close k.output so that Next() stops, this is also the reason

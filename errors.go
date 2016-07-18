@@ -26,6 +26,8 @@ var (
 	ErrConfigInvalidCommitFrequency = errors.New("CommitFrequency config value is mandatory")
 	// ErrConfigInvalidShardCheckFrequency - ShardCheckFrequency config value is mandatory
 	ErrConfigInvalidShardCheckFrequency = errors.New("ShardCheckFrequency config value is mandatory")
+	// ErrConfigInvalidLeaderActionFrequency - LeaderActionFrequency config value is mandatory
+	ErrConfigInvalidLeaderActionFrequency = errors.New("LeaderActionFrequency config value is mandatory and must be at least as long as ShardCheckFrequency")
 	// ErrConfigInvalidBufferSize - BufferSize config value is mandatory
 	ErrConfigInvalidBufferSize = errors.New("BufferSize config value is mandatory")
 	// ErrConfigInvalidStats - Stats cannot be nil

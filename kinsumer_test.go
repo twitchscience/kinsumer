@@ -29,6 +29,8 @@ var (
 	resourceChangeTimeout = flag.Duration("resource_change_timeout", 50*time.Millisecond, "Timeout between changes to the resource infrastructure")
 	streamName            = flag.String("stream_name", "kinsumer_test", "Name of kinesis stream to use for tests")
 	applicationName       = flag.String("application_name", "kinsumer_test", "Name of the application, will impact dynamo table names")
+	dynamoSuffixes        = []string{"_checkpoints", "_clients", "_metadata"}
+	dynamoKeys            = map[string]string{"_checkpoints": "Shard", "_clients": "ID", "_metadata": "Key"}
 )
 
 func TestNewWithInterfaces(t *testing.T) {
@@ -139,17 +141,14 @@ func SetupTestEnvironment(t *testing.T, k kinesisiface.KinesisAPI, d dynamodbifa
 		return fmt.Errorf("Error creating fresh stream: %s", err)
 	}
 
-	err = CreateFreshTable(t, d, *applicationName+"_clients", "ID")
-	if err != nil {
-		return fmt.Errorf("Error creating fresh clients table: %s", err)
+	for _, s := range dynamoSuffixes {
+		err = CreateFreshTable(t, d, *applicationName+s, dynamoKeys[s])
+		if err != nil {
+			return fmt.Errorf("Error creating fresh %s table: %s", s, err)
+		}
 	}
 
-	err = CreateFreshTable(t, d, *applicationName+"_checkpoints", "Shard")
-	if err != nil {
-		return fmt.Errorf("Error creating fresh checkpoints table: %s", err)
-	}
-
-	time.Sleep(1 * time.Second)
+	time.Sleep(*resourceChangeTimeout)
 	return nil
 }
 
@@ -173,23 +172,17 @@ func CleanupTestEnvironment(t *testing.T, k kinesisiface.KinesisAPI, d dynamodbi
 	})
 
 	if e := ignoreResourceNotFound(err); e != nil {
-		return fmt.Errorf("Error deleting clients table: %s", e)
+		return fmt.Errorf("Error deleting kinesis stream: %s", e)
 	}
 
-	_, err = d.DeleteTable(&dynamodb.DeleteTableInput{
-		TableName: aws.String(*applicationName + "_clients"),
-	})
+	for _, s := range dynamoSuffixes {
+		_, err = d.DeleteTable(&dynamodb.DeleteTableInput{
+			TableName: aws.String(*applicationName + s),
+		})
 
-	if e := ignoreResourceNotFound(err); e != nil {
-		return fmt.Errorf("Error deleting clients table: %s", err)
-	}
-
-	_, err = d.DeleteTable(&dynamodb.DeleteTableInput{
-		TableName: aws.String(*applicationName + "_checkpoints"),
-	})
-
-	if e := ignoreResourceNotFound(err); e != nil {
-		return fmt.Errorf("Error deleting checkpoints table: %s", err)
+		if e := ignoreResourceNotFound(err); e != nil {
+			return fmt.Errorf("Error deleting %s table: %s", s, err)
+		}
 	}
 
 	return nil

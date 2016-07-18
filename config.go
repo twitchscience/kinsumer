@@ -20,10 +20,13 @@ type Config struct {
 	// Delay between commits to the checkpoint database
 	commitFrequency time.Duration
 
-	// ---------- [ For the entire Kinsumer ] ----------
-	// Delay between tests for the shard numbers changing (will be replaced when balancing is done)
+	// Delay between tests for the client or shard numbers changing
 	shardCheckFrequency time.Duration
+	// ---------- [ For the leader (first client alphabetically) ] ----------
+	// Time between leader actions
+	leaderActionFrequency time.Duration
 
+	// ---------- [ For the entire Kinsumer ] ----------
 	// Size of the buffer for the combined records channel. When the channel fills up
 	// the workers will stop adding new elements to the queue, so a slow client will
 	// potentially fall behind the kinesis stream.
@@ -33,11 +36,12 @@ type Config struct {
 // NewConfig returns a default Config struct
 func NewConfig() Config {
 	return Config{
-		throttleDelay:       200 * time.Millisecond,
-		commitFrequency:     1000 * time.Millisecond,
-		shardCheckFrequency: 1 * time.Minute,
-		bufferSize:          100,
-		stats:               &NoopStatReceiver{},
+		throttleDelay:         200 * time.Millisecond,
+		commitFrequency:       1000 * time.Millisecond,
+		shardCheckFrequency:   1 * time.Minute,
+		leaderActionFrequency: 1 * time.Minute,
+		bufferSize:            100,
+		stats:                 &NoopStatReceiver{},
 	}
 }
 
@@ -56,6 +60,12 @@ func (c Config) WithCommitFrequency(commitFrequency time.Duration) Config {
 // WithShardCheckFrequency returns a Config with a modified shard check frequency
 func (c Config) WithShardCheckFrequency(shardCheckFrequency time.Duration) Config {
 	c.shardCheckFrequency = shardCheckFrequency
+	return c
+}
+
+// WithLeaderActionFrequency returns a Config with a modified leader action frequency
+func (c Config) WithLeaderActionFrequency(leaderActionFrequency time.Duration) Config {
+	c.leaderActionFrequency = leaderActionFrequency
 	return c
 }
 
@@ -83,6 +93,14 @@ func validateConfig(c *Config) error {
 
 	if c.shardCheckFrequency == 0 {
 		return ErrConfigInvalidShardCheckFrequency
+	}
+
+	if c.leaderActionFrequency == 0 {
+		return ErrConfigInvalidLeaderActionFrequency
+	}
+
+	if c.shardCheckFrequency > c.leaderActionFrequency {
+		return ErrConfigInvalidLeaderActionFrequency
 	}
 
 	if c.bufferSize == 0 {
