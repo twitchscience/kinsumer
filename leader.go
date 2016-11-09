@@ -149,6 +149,10 @@ func (k *Kinsumer) setCachedShardIDs(shardIDs []string) error {
 		LastUpdate:    now.UnixNano(),
 		LastUpdateRFC: now.UTC().Format(time.RFC1123Z),
 	})
+	if err != nil {
+		return fmt.Errorf("error marshalling map: %v", err)
+	}
+
 	_, err = k.dynamodb.PutItem(&dynamodb.PutItemInput{
 		TableName: aws.String(k.metadataTableName),
 		Item:      item,
