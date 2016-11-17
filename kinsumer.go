@@ -184,6 +184,10 @@ func (k *Kinsumer) startConsumers() error {
 	k.stop = make(chan struct{})
 	assigned := false
 
+	if k.thisClient >= len(k.shardIDs) {
+		return nil
+	}
+
 	for i, shard := range k.shardIDs {
 		if (i % k.totalClients) == k.thisClient {
 			k.waitGroup.Add(1)
