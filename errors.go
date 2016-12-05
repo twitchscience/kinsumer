@@ -20,8 +20,8 @@ var (
 	// ErrNoShardsAssigned - We found shards, but got assigned none
 	ErrNoShardsAssigned = errors.New("We found shards, but got assigned none")
 
-	// ErrConfigInvalidThrottleDelay - ThrottleDelay config value is mandatory
-	ErrConfigInvalidThrottleDelay = errors.New("ThrottleDelay config value is mandatory")
+	// ErrConfigInvalidThrottleDelay - ThrottleDelay config value must be at least 200ms
+	ErrConfigInvalidThrottleDelay = errors.New("ThrottleDelay config value must be at least 200ms (preferably 250ms)")
 	// ErrConfigInvalidCommitFrequency - CommitFrequency config value is mandatory
 	ErrConfigInvalidCommitFrequency = errors.New("CommitFrequency config value is mandatory")
 	// ErrConfigInvalidShardCheckFrequency - ShardCheckFrequency config value is mandatory

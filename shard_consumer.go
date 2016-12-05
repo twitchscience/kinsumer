@@ -19,7 +19,7 @@ const (
 	getRecordsLimit = 10000 // 10,000 is the max according to the docs
 
 	// maxErrorRetries is how many times we will retry on a shard error
-	maxErrorRetries = 5
+	maxErrorRetries = 3
 
 	// errorSleepDuration is how long we sleep when an error happens, this is multiplied by the number
 	// of retries to give a minor backoff behavior
@@ -142,8 +142,8 @@ func (k *Kinsumer) consume(shardID string) {
 		return
 	}
 
-	// nextThrottleDelay is how long we delay requests to kinesis.
-	nextThrottleDelay := k.config.throttleDelay
+	// no throttle on the first request.
+	nextThrottle := time.After(0)
 
 	retryCount := 0
 
@@ -169,14 +169,16 @@ mainloop:
 			if finishCommitted {
 				return
 			}
-		case <-time.After(nextThrottleDelay):
+			// Go back to waiting for a throttle/stop.
+			continue mainloop
+		case <-nextThrottle:
 		}
 
-		// Reset the throttleDelay
-		nextThrottleDelay = k.config.throttleDelay
+		// Reset the nextThrottle
+		nextThrottle = time.After(k.config.throttleDelay)
 
 		if finished {
-			continue
+			continue mainloop
 		}
 
 		// Get records from kinesis
@@ -184,22 +186,14 @@ mainloop:
 
 		if err != nil {
 			if awsErr, ok := err.(awserr.Error); ok {
-				switch awsErr.Code() {
-				case "ProvisionedThroughputExceededException", "LimitExceededException":
-					// No need to do anything in this situation, just recycle and wait for the throttleDelay
-					continue mainloop
-				default:
-					if retryCount > 0 {
-						log.Println("Got error", awsErr.Message(), "retry count is", retryCount, "/", maxErrorRetries)
-					}
-					if retryCount < maxErrorRetries {
-						retryCount++
+				log.Printf("Got error: %s (%s) retry count is %d / %d", awsErr.Message(), awsErr.OrigErr(), retryCount, maxErrorRetries)
+				if retryCount < maxErrorRetries {
+					retryCount++
 
-						// casting retryCount here to time.Duration purely for the multiplication, there is
-						// no meaning to retryCount nanoseconds
-						time.Sleep(errorSleepDuration * time.Duration(retryCount))
-						continue mainloop
-					}
+					// casting retryCount here to time.Duration purely for the multiplication, there is
+					// no meaning to retryCount nanoseconds
+					time.Sleep(errorSleepDuration * time.Duration(retryCount))
+					continue mainloop
 				}
 			}
 			k.shardErrors <- shardConsumerError{shardID: shardID, action: "getRecords", err: err}
@@ -222,9 +216,6 @@ mainloop:
 				}:
 				}
 			}
-
-			// Since we got records, let's hit kinesis again.
-			nextThrottleDelay = 0
 
 			// Update the last sequence number we saw, in case we reached the end of the stream.
 			lastSeqNum = aws.StringValue(records[len(records)-1].SequenceNumber)

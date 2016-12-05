@@ -36,7 +36,7 @@ type Config struct {
 // NewConfig returns a default Config struct
 func NewConfig() Config {
 	return Config{
-		throttleDelay:         200 * time.Millisecond,
+		throttleDelay:         250 * time.Millisecond,
 		commitFrequency:       1000 * time.Millisecond,
 		shardCheckFrequency:   1 * time.Minute,
 		leaderActionFrequency: 1 * time.Minute,
@@ -83,7 +83,7 @@ func (c Config) WithStats(stats StatReceiver) Config {
 
 // Verify that a config struct has sane and valid values
 func validateConfig(c *Config) error {
-	if c.throttleDelay == 0 {
+	if c.throttleDelay < 200*time.Millisecond {
 		return ErrConfigInvalidThrottleDelay
 	}
 
