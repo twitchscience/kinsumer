@@ -11,7 +11,7 @@ import (
 
 // Statsd is a statreceiver that writes stats to a statsd endpoint
 type Statsd struct {
-	client statsd.Statter
+	client statsd.StatSender
 }
 
 // New creates a new Statsd statreceiver with a new instance of a cactus statter
@@ -26,7 +26,7 @@ func New(addr, prefix string) (*Statsd, error) {
 }
 
 // NewWithStatter creates a new statreciever wrapping an existing statter
-func NewWithStatter(client statsd.Statter) *Statsd {
+func NewWithStatter(client statsd.StatSender) *Statsd {
 	return &Statsd{
 		client: client,
 	}
