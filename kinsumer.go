@@ -62,7 +62,11 @@ type Kinsumer struct {
 
 // New returns a Kinsumer Interface with default kinesis and dynamodb instances, to be used in ec2 instances to get default auth and config
 func New(streamName, applicationName, clientName string, config Config) (*Kinsumer, error) {
-	return NewWithSession(session.New(), streamName, applicationName, clientName, config)
+	s, err := session.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	return NewWithSession(s, streamName, applicationName, clientName, config)
 }
 
 // NewWithSession should be used if you want to override the Kinesis and Dynamo instances with a non-default aws session
