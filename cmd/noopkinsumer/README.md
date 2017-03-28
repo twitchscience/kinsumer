@@ -7,11 +7,12 @@ In addition to being a minimal example, noopkinsumer is useful for its side effe
 
 ## Resources
 
-To use noopkinsumer you need a kinesis stream with data on it or being written to it, and two dynamo tables
+To use noopkinsumer you need a kinesis stream with data on it or being written to it, and three dynamo tables with
+the following HASH keys
 
 |TableName|DistKey|
 |---------|-------|
 |noopkinsumer_clients|ID (String)|
 |noopkinsumer_checkpoints|Shard (String)|
-
+|noopkinsumer_metadata|Key (String)|
 
