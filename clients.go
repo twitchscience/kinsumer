@@ -44,7 +44,7 @@ func (sc sortableClients) Swap(left, right int) {
 // registerWithClientsTable adds or updates our client with a current LastUpdate in dynamo
 func registerWithClientsTable(db dynamodbiface.DynamoDBAPI, id, name, tableName string) error {
 	now := time.Now()
-	item, err := dynamodbattribute.ConvertToMap(clientRecord{
+	item, err := dynamodbattribute.MarshalMap(clientRecord{
 		ID:            id,
 		Name:          name,
 		LastUpdate:    now.UnixNano(),
@@ -68,7 +68,7 @@ func registerWithClientsTable(db dynamodbiface.DynamoDBAPI, id, name, tableName 
 // deregisterWithClientsTable deletes our client from dynamo
 func deregisterFromClientsTable(db dynamodbiface.DynamoDBAPI, id, tableName string) error {
 	idStruct := struct{ ID string }{ID: id}
-	item, err := dynamodbattribute.ConvertToMap(idStruct)
+	item, err := dynamodbattribute.MarshalMap(idStruct)
 
 	if err != nil {
 		return err
@@ -102,7 +102,7 @@ func getClients(db dynamodbiface.DynamoDBAPI, name string, tableName string, max
 	err = db.ScanPages(params, func(p *dynamodb.ScanOutput, lastPage bool) (shouldContinue bool) {
 		for _, item := range p.Items {
 			var record clientRecord
-			innerError = dynamodbattribute.ConvertFromMap(item, &record)
+			innerError = dynamodbattribute.UnmarshalMap(item, &record)
 			if innerError != nil {
 				return false
 			}
@@ -163,7 +163,7 @@ func reapClients(db dynamodbiface.DynamoDBAPI, tableName string) error {
 
 	for _, client := range clients {
 		idStruct := struct{ ID string }{ID: client.ID}
-		item, err := dynamodbattribute.ConvertToMap(idStruct)
+		item, err := dynamodbattribute.MarshalMap(idStruct)
 		if err != nil {
 			return err
 		}

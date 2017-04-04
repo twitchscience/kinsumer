@@ -55,7 +55,7 @@ func initKinsumer() {
 	}
 
 	config := kinsumer.NewConfig().WithStats(stats)
-	session := session.New(aws.NewConfig())
+	session := session.Must(session.NewSession(aws.NewConfig()))
 
 	// kinsumer needs a way to differentiate between running clients, generally you want to use information
 	// about the machine it is running on like ip. For this example we'll use a uuid

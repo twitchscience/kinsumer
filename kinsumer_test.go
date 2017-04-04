@@ -41,8 +41,9 @@ const (
 )
 
 func TestNewWithInterfaces(t *testing.T) {
-	k := kinesis.New(session.New())
-	d := dynamodb.New(session.New())
+	s := session.Must(session.NewSession())
+	k := kinesis.New(s)
+	d := dynamodb.New(s)
 
 	// No kinesis
 	_, err := NewWithInterfaces(nil, d, "stream", "app", "client", NewConfig())
@@ -257,8 +258,8 @@ func KinesisAndDynamoInstances() (kinesisiface.KinesisAPI, dynamodbiface.DynamoD
 		dc = dc.WithEndpoint(*dynamoEndpoint)
 	}
 
-	k := kinesis.New(session.New(kc))
-	d := dynamodb.New(session.New(dc))
+	k := kinesis.New(session.Must(session.NewSession(kc)))
+	d := dynamodb.New(session.Must(session.NewSession(dc)))
 
 	return k, d
 }

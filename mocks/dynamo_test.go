@@ -26,17 +26,17 @@ func TestMockDynamo(t *testing.T) {
 		Name: "Ken Thompson",
 		ID:   1,
 	}
-	user1, err := dynamodbattribute.ConvertToMap(ken)
+	user1, err := dynamodbattribute.MarshalMap(ken)
 	if err != nil {
-		t.Fatalf("ConvertToMap(user1) err=%q", err)
+		t.Fatalf("MarshalMap(user1) err=%q", err)
 	}
 	rob := user{
 		Name: "Rob Pike",
 		ID:   2,
 	}
-	user2, err := dynamodbattribute.ConvertToMap(rob)
+	user2, err := dynamodbattribute.MarshalMap(rob)
 	if err != nil {
-		t.Fatalf("ConvertToMap(user2) err=%q", err)
+		t.Fatalf("MarshalMap(user2) err=%q", err)
 	}
 
 	// Put the objects in
@@ -74,8 +74,8 @@ func TestMockDynamo(t *testing.T) {
 	}
 
 	var returnedUser user
-	if err = dynamodbattribute.ConvertFromMap(resp.Item, &returnedUser); err != nil {
-		t.Fatalf("ConvertFromMap(GetItem response) err=%q", err)
+	if err = dynamodbattribute.UnmarshalMap(resp.Item, &returnedUser); err != nil {
+		t.Fatalf("UnmarshalMap(GetItem response) err=%q", err)
 	}
 
 	if !reflect.DeepEqual(ken, returnedUser) {
@@ -95,9 +95,9 @@ func TestMockDynamo(t *testing.T) {
 	err = mock.ScanPages(scanInput, func(page *dynamodb.ScanOutput, last bool) bool {
 		for _, item := range page.Items {
 			var u user
-			err = dynamodbattribute.ConvertFromMap(item, &u)
+			err = dynamodbattribute.UnmarshalMap(item, &u)
 			if err != nil {
-				t.Fatalf("ConvertFromMap(Scan response) err=%q", err)
+				t.Fatalf("UnmarshalMap(Scan response) err=%q", err)
 			}
 			result = append(result, u)
 		}

@@ -2,6 +2,9 @@ sudo: false
 language: go
 go:
 - 1.6
+- 1.7
+- 1.8
+- tip
 go_import_path: github.com/twitchscience/kinsumer
 install:
 - go get github.com/alecthomas/gometalinter
@@ -13,4 +16,4 @@ install:
 script:
 - go install ./...
 - go test -short ./...
-- gometalinter ./... --deadline 2m --disable gocyclo --disable dupl --disable gas
+- gometalinter ./... --deadline 5m --disable gocyclo --disable dupl --disable gas

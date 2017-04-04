@@ -74,7 +74,7 @@ func capture(
 
 	// Convert to struct so we can work with the values
 	var record checkpointRecord
-	if err = dynamodbattribute.ConvertFromMap(resp.Item, &record); err != nil {
+	if err = dynamodbattribute.UnmarshalMap(resp.Item, &record); err != nil {
 		return nil, err
 	}
 
@@ -96,7 +96,7 @@ func capture(
 	record.LastUpdate = now.UnixNano()
 	record.LastUpdateRFC = now.UTC().Format(time.RFC1123Z)
 
-	item, err := dynamodbattribute.ConvertToMap(record)
+	item, err := dynamodbattribute.MarshalMap(record)
 	if err != nil {
 		return nil, err
 	}
