@@ -16,6 +16,9 @@ Kinsumer will rebalance shards to each client whenever it detects the list of sh
 
 If you are running multiple Kinsumer apps against a single stream, make sure to increase the throttleDelay to at least `50ms + (200ms * <the number of reader apps>)`. Note that Kinesis does not support more than two readers per writer on a fully utilized stream, so make sure you have enough stream capcity.
 
+## Example
+See `cmd/noopkinsumer` for a fully working client example
+
 ## Testing
 
 ### Testing with local test servers
@@ -35,5 +38,3 @@ It's possible to run the test against real AWS resources, but the tests create a
 Make sure you have your credentials setup in a way that [aws-sdk-go](https://github.com/aws/aws-sdk-go) is happy with, or be running on an EC2 instance.
 
 Then `go test . -dynamo_endpoint= -kinesis_endpoint=  -resource_change_timeout=30s`
-
-
