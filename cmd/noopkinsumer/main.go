@@ -12,11 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TwitchScience/kinsumer"
+	"github.com/TwitchScience/kinsumer/statsd"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/twinj/uuid"
-	"github.com/twitchscience/kinsumer"
-	"github.com/twitchscience/kinsumer/statsd"
 )
 
 var (
