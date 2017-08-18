@@ -206,23 +206,28 @@ mainloop:
 		if len(records) > 0 {
 			retrievedAt := time.Now()
 			for _, record := range records {
-				select {
-				case <-commitTicker.C:
-					finishCommitted, err := checkpointer.commit()
-					if err != nil {
-						k.shardErrors <- shardConsumerError{shardID: shardID, action: "checkpointer.commit", err: err}
+			RecordLoop:
+				// Loop until we stop or the record is consumed, checkpointing if necessary.
+				for {
+					select {
+					case <-commitTicker.C:
+						finishCommitted, err := checkpointer.commit()
+						if err != nil {
+							k.shardErrors <- shardConsumerError{shardID: shardID, action: "checkpointer.commit", err: err}
+							return
+						}
+						if finishCommitted {
+							return
+						}
+					case <-k.stop:
 						return
+					case k.records <- &consumedRecord{
+						record:       record,
+						checkpointer: checkpointer,
+						retrievedAt:  retrievedAt,
+					}:
+						break RecordLoop
 					}
-					if finishCommitted {
-						return
-					}
-				case <-k.stop:
-					return
-				case k.records <- &consumedRecord{
-					record:       record,
-					checkpointer: checkpointer,
-					retrievedAt:  retrievedAt,
-				}:
 				}
 			}
 
