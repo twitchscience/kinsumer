@@ -70,7 +70,7 @@ func TestCheckpointer(t *testing.T) {
 		}
 	})
 
-	// Try to get another checkpointer for this shard, should not succceed but not error
+	// Try to get another checkpointer for this shard, should not succeed but not error
 	cp2, err := capture("shard", table, mock, "differentOwner", "differentOwnerId", 3*time.Minute, stats)
 	if err != nil {
 		t.Errorf("cp2 first attempt err=%q", err)

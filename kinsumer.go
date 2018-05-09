@@ -29,7 +29,7 @@ type consumedRecord struct {
 	retrievedAt  time.Time       // Time the record was retrieved from Kinesis
 }
 
-// Kinsumer is a Kinesis Consumer that tries to reduce duplicate reads while allowing for mutliple
+// Kinsumer is a Kinesis Consumer that tries to reduce duplicate reads while allowing for multiple
 // clients each processing multiple shards
 type Kinsumer struct {
 	kinesis               kinesisiface.KinesisAPI   // interface to the kinesis service
