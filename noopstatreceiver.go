@@ -9,11 +9,11 @@ import "time"
 type NoopStatReceiver struct {
 }
 
-// Checkpoint implememntation that doesn't do anything
+// Checkpoint implementation that doesn't do anything
 func (*NoopStatReceiver) Checkpoint() {}
 
-// EventToClient implememntation that doesn't do anything
+// EventToClient implementation that doesn't do anything
 func (*NoopStatReceiver) EventToClient(inserted, retrieved time.Time) {}
 
-// EventsFromKinesis implememntation that doesn't do anything
+// EventsFromKinesis implementation that doesn't do anything
 func (*NoopStatReceiver) EventsFromKinesis(num int, shardID string, lag time.Duration) {}
