@@ -79,10 +79,6 @@ func (d *MockDynamo) addTable(name string) {
 	d.tables[name] = make([]mockDynamoItem, 0)
 }
 
-func (d *MockDynamo) deleteTable(name string) {
-	delete(d.tables, name)
-}
-
 func (d *MockDynamo) recordCall(operation string, in, out interface{}, err error) {
 	d.requests = append(d.requests, mockDynamoCallRecord{
 		operation: operation,
