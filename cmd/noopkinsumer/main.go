@@ -20,15 +20,17 @@ import (
 )
 
 var (
-	statsdHostPort    string
-	statsdPrefix      string
-	kinesisStreamName string
+	statsdHostPort     string
+	statsdPrefix       string
+	kinesisStreamName  string
+	createDynamoTables bool
 )
 
 func init() {
 	flag.StringVar(&statsdHostPort, "statsdHostPort", "", "host:port of statsd server")
 	flag.StringVar(&statsdPrefix, "statsdPrefix", "", "statsd prefix")
 	flag.StringVar(&kinesisStreamName, "stream", "", "name of kinesis stream")
+	flag.BoolVar(&createDynamoTables, "createTables", false, "create dynamo db tables")
 }
 
 var (
@@ -64,6 +66,13 @@ func initKinsumer() {
 	k, err = kinsumer.NewWithSession(session, kinesisStreamName, "noopkinsumer", name, config)
 	if err != nil {
 		log.Fatalf("Error creating kinsumer: %v", err)
+	}
+
+	if createDynamoTables {
+		err = k.CreateRequiredTables()
+		if err != nil {
+			log.Fatalf("Error creating kinsumer dynamo db tables: %v", err)
+		}
 	}
 }
 

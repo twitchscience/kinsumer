@@ -32,6 +32,8 @@ var (
 	ErrConfigInvalidBufferSize = errors.New("BufferSize config value is mandatory")
 	// ErrConfigInvalidStats - Stats cannot be nil
 	ErrConfigInvalidStats = errors.New("Stats cannot be nil")
+	// ErrConfigInvalidDynamoCapacity - Dynamo read/write capacity cannot be 0
+	ErrConfigInvalidDynamoCapacity = errors.New("Dynamo read/write capacity cannot be 0")
 
 	// ErrKinesisCantDescribeStream - Unable to describe stream
 	ErrKinesisCantDescribeStream = errors.New("Unable to describe stream")

@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/aws/aws-sdk-go/service/kinesis"
 	"github.com/aws/aws-sdk-go/service/kinesis/kinesisiface"
 	"github.com/twinj/uuid"
+	"golang.org/x/sync/errgroup"
 )
 
 type shardConsumerError struct {
@@ -234,6 +236,70 @@ func (k *Kinsumer) dynamoTableActive(name string) error {
 	return nil
 }
 
+// dynamoTableExists returns an true if the given table exists
+func (k *Kinsumer) dynamoTableExists(name string) bool {
+	_, err := k.dynamodb.DescribeTable(&dynamodb.DescribeTableInput{
+		TableName: aws.String(name),
+	})
+	return err == nil
+}
+
+// dynamoCreateTableIfNotExists creates a table with the given name and distKey
+// if it doesn't exist and will wait until it is created
+func (k *Kinsumer) dynamoCreateTableIfNotExists(name, distKey string) error {
+	if k.dynamoTableExists(name) {
+		return nil
+	}
+	_, err := k.dynamodb.CreateTable(&dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{{
+			AttributeName: aws.String(distKey),
+			AttributeType: aws.String(dynamodb.ScalarAttributeTypeS),
+		}},
+		KeySchema: []*dynamodb.KeySchemaElement{{
+			AttributeName: aws.String(distKey),
+			KeyType:       aws.String(dynamodb.KeyTypeHash),
+		}},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(k.config.dynamoReadCapacity),
+			WriteCapacityUnits: aws.Int64(k.config.dynamoWriteCapacity),
+		},
+		TableName: aws.String(name),
+	})
+	if err != nil {
+		return err
+	}
+	err = k.dynamodb.WaitUntilTableExistsWithContext(
+		aws.BackgroundContext(),
+		&dynamodb.DescribeTableInput{
+			TableName: aws.String(name),
+		},
+		request.WithWaiterDelay(request.ConstantWaiterDelay(k.config.dynamoWaiterDelay)),
+	)
+	return err
+}
+
+// dynamoDeleteTableIfExists delete a table with the given name if it exists
+// and will wait until it is deleted
+func (k *Kinsumer) dynamoDeleteTableIfExists(name string) error {
+	if !k.dynamoTableExists(name) {
+		return nil
+	}
+	_, err := k.dynamodb.DeleteTable(&dynamodb.DeleteTableInput{
+		TableName: aws.String(name),
+	})
+	if err != nil {
+		return err
+	}
+	err = k.dynamodb.WaitUntilTableNotExistsWithContext(
+		aws.BackgroundContext(),
+		&dynamodb.DescribeTableInput{
+			TableName: aws.String(name),
+		},
+		request.WithWaiterDelay(request.ConstantWaiterDelay(k.config.dynamoWaiterDelay)),
+	)
+	return err
+}
+
 // kinesisStreamReady returns an error if the given stream is not ACTIVE
 func (k *Kinsumer) kinesisStreamReady() error {
 	out, err := k.kinesis.DescribeStream(&kinesis.DescribeStreamInput{
@@ -387,4 +453,40 @@ func (k *Kinsumer) Next() (data []byte, err error) {
 	}
 
 	return data, err
+}
+
+// CreateRequiredTables will create the required dynamodb tables
+// based on the applicationName
+func (k *Kinsumer) CreateRequiredTables() error {
+	g := &errgroup.Group{}
+
+	g.Go(func() error {
+		return k.dynamoCreateTableIfNotExists(k.clientsTableName, "ID")
+	})
+	g.Go(func() error {
+		return k.dynamoCreateTableIfNotExists(k.checkpointTableName, "Shard")
+	})
+	g.Go(func() error {
+		return k.dynamoCreateTableIfNotExists(k.metadataTableName, "Key")
+	})
+
+	return g.Wait()
+}
+
+// DeleteTables will delete the dynamodb tables that were created
+// based on the applicationName
+func (k *Kinsumer) DeleteTables() error {
+	g := &errgroup.Group{}
+
+	g.Go(func() error {
+		return k.dynamoDeleteTableIfExists(k.clientsTableName)
+	})
+	g.Go(func() error {
+		return k.dynamoDeleteTableIfExists(k.checkpointTableName)
+	})
+	g.Go(func() error {
+		return k.dynamoDeleteTableIfExists(k.metadataTableName)
+	})
+
+	return g.Wait()
 }
