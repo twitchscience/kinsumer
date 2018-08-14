@@ -16,3 +16,5 @@ the following HASH keys
 |noopkinsumer_checkpoints|Shard (String)|
 |noopkinsumer_metadata|Key (String)|
 
+The dynamo tables can be created programmatically by running the example with flag `createTables` set to true
+

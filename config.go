@@ -31,6 +31,15 @@ type Config struct {
 	// the workers will stop adding new elements to the queue, so a slow client will
 	// potentially fall behind the kinesis stream.
 	bufferSize int
+
+	// ---------- [ For the Dynamo DB tables ] ----------
+	// Read and write capacity for the Dynamo DB tables when created
+	// with CreateRequiredTables() call. If tables already exist because they were
+	// created on a prevoius run or created manually, these parameters will not be used.
+	dynamoReadCapacity  int64
+	dynamoWriteCapacity int64
+	// Time to wait between attempts to verify tables were created/deleted completely
+	dynamoWaiterDelay time.Duration
 }
 
 // NewConfig returns a default Config struct
@@ -42,6 +51,9 @@ func NewConfig() Config {
 		leaderActionFrequency: 1 * time.Minute,
 		bufferSize:            100,
 		stats:                 &NoopStatReceiver{},
+		dynamoReadCapacity:    10,
+		dynamoWriteCapacity:   10,
+		dynamoWaiterDelay:     3 * time.Second,
 	}
 }
 
@@ -81,6 +93,24 @@ func (c Config) WithStats(stats StatReceiver) Config {
 	return c
 }
 
+// WithDynamoReadCapacity returns a Config with a modified dynamo read capacity
+func (c Config) WithDynamoReadCapacity(readCapacity int64) Config {
+	c.dynamoReadCapacity = readCapacity
+	return c
+}
+
+// WithDynamoWriteCapacity returns a Config with a modified dynamo write capacity
+func (c Config) WithDynamoWriteCapacity(writeCapacity int64) Config {
+	c.dynamoWriteCapacity = writeCapacity
+	return c
+}
+
+// WithDynamoWaiterDelay returns a Config with a modified dynamo waiter delay
+func (c Config) WithDynamoWaiterDelay(delay time.Duration) Config {
+	c.dynamoWaiterDelay = delay
+	return c
+}
+
 // Verify that a config struct has sane and valid values
 func validateConfig(c *Config) error {
 	if c.throttleDelay < 200*time.Millisecond {
@@ -109,6 +139,10 @@ func validateConfig(c *Config) error {
 
 	if c.stats == nil {
 		return ErrConfigInvalidStats
+	}
+
+	if c.dynamoReadCapacity == 0 || c.dynamoWriteCapacity == 0 {
+		return ErrConfigInvalidDynamoCapacity
 	}
 
 	return nil

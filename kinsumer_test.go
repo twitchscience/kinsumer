@@ -31,8 +31,6 @@ var (
 	resourceChangeTimeout = flag.Duration("resource_change_timeout", 50*time.Millisecond, "Timeout between changes to the resource infrastructure")
 	streamName            = flag.String("stream_name", "kinsumer_test", "Name of kinesis stream to use for tests")
 	applicationName       = flag.String("application_name", "kinsumer_test", "Name of the application, will impact dynamo table names")
-	dynamoSuffixes        = []string{"_checkpoints", "_clients", "_metadata"}
-	dynamoKeys            = map[string]string{"_checkpoints": "Shard", "_clients": "ID", "_metadata": "Key"}
 )
 
 const (
@@ -99,64 +97,24 @@ func CreateFreshStream(t *testing.T, k kinesisiface.KinesisAPI) error {
 	return nil
 }
 
-func CreateFreshTable(t *testing.T, d dynamodbiface.DynamoDBAPI, tableName string, keyName string) error {
-	_, err := d.DeleteTable(&dynamodb.DeleteTableInput{
-		TableName: aws.String(tableName),
-	})
-
-	if err != nil {
-		if awsErr, ok := err.(awserr.Error); ok {
-			if awsErr.Code() != "ResourceNotFoundException" {
-				return err
-			}
-		}
-	} else {
-		// Wait for table to be deleted
-		time.Sleep(*resourceChangeTimeout)
-	}
-
-	_, err = d.CreateTable(&dynamodb.CreateTableInput{
-		AttributeDefinitions: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String(keyName),
-				AttributeType: aws.String("S"),
-			},
-		},
-		KeySchema: []*dynamodb.KeySchemaElement{
-			{
-				AttributeName: aws.String(keyName),
-				KeyType:       aws.String("HASH"),
-			},
-		},
-		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-		TableName: aws.String(tableName),
-	})
-
-	if err != nil {
-		return err
-	}
-	time.Sleep(*resourceChangeTimeout)
-
-	return nil
-}
-
 func SetupTestEnvironment(t *testing.T, k kinesisiface.KinesisAPI, d dynamodbiface.DynamoDBAPI) error {
 	err := CreateFreshStream(t, k)
 	if err != nil {
 		return fmt.Errorf("Error creating fresh stream: %s", err)
 	}
 
-	for _, s := range dynamoSuffixes {
-		err = CreateFreshTable(t, d, *applicationName+s, dynamoKeys[s])
-		if err != nil {
-			return fmt.Errorf("Error creating fresh %s table: %s", s, err)
-		}
+	testConf := NewConfig().WithDynamoWaiterDelay(*resourceChangeTimeout)
+	client, _ := NewWithInterfaces(k, d, "N/A", *applicationName, "N/A", testConf)
+
+	err = client.DeleteTables()
+	if err != nil {
+		return fmt.Errorf("Error deleting tables: %s", err)
 	}
 
-	time.Sleep(*resourceChangeTimeout)
+	err = client.CreateRequiredTables()
+	if err != nil {
+		return fmt.Errorf("Error creating fresh tables: %s", err)
+	}
 	return nil
 }
 
@@ -183,16 +141,13 @@ func CleanupTestEnvironment(t *testing.T, k kinesisiface.KinesisAPI, d dynamodbi
 		return fmt.Errorf("Error deleting kinesis stream: %s", e)
 	}
 
-	for _, s := range dynamoSuffixes {
-		_, err = d.DeleteTable(&dynamodb.DeleteTableInput{
-			TableName: aws.String(*applicationName + s),
-		})
+	testConf := NewConfig().WithDynamoWaiterDelay(*resourceChangeTimeout)
+	client, _ := NewWithInterfaces(k, d, "N/A", *applicationName, "", testConf)
 
-		if e := ignoreResourceNotFound(err); e != nil {
-			return fmt.Errorf("Error deleting %s table: %s", s, err)
-		}
+	err = client.DeleteTables()
+	if err != nil {
+		return fmt.Errorf("Error deleting tables: %s", err)
 	}
-
 	return nil
 }
 
