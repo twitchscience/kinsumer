@@ -36,6 +36,9 @@ func getShardIterator(k kinesisiface.KinesisAPI, streamName string, shardID stri
 	if sequenceNumber == "" {
 		shardIteratorType = kinesis.ShardIteratorTypeTrimHorizon
 		ps = nil
+	} else if sequenceNumber == "LATEST" {
+		shardIteratorType = kinesis.ShardIteratorTypeLatest
+		ps = nil
 	}
 
 	resp, err := k.GetShardIterator(&kinesis.GetShardIteratorInput{
