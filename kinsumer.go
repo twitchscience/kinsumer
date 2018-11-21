@@ -58,6 +58,7 @@ type Kinsumer struct {
 	isLeader              bool                      // Whether this client is the leader
 	leaderLost            chan bool                 // Channel that receives an event when the node loses leadership
 	leaderWG              sync.WaitGroup            // waitGroup for the leader loop
+	firstRun              int32                     // Used to skip dynamodb shard cache on first start
 	maxAgeForClientRecord time.Duration             // Cutoff for client/checkpoint records we read from dynamodb before we assume the record is stale
 	maxAgeForLeaderRecord time.Duration             // Cutoff for leader/shard cache records we read from dynamodb before we assume the record is stale
 }
@@ -156,7 +157,15 @@ func (k *Kinsumer) refreshShards() (bool, error) {
 		k.unbecomeLeader()
 	}
 
-	shardIDs, err = loadShardIDsFromDynamo(k.dynamodb, k.metadataTableName)
+	firstRun := atomic.CompareAndSwapInt32(&k.firstRun, 1, 0)
+	if firstRun {
+		shardIDs, err = loadShardIDsFromKinesis(k.kinesis, k.streamName)
+		if err == nil {
+			err = k.setCachedShardIDs(shardIDs)
+		}
+	} else {
+		shardIDs, err = loadShardIDsFromDynamo(k.dynamodb, k.metadataTableName)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -250,6 +259,21 @@ func (k *Kinsumer) dynamoCreateTableIfNotExists(name, distKey string) error {
 	if k.dynamoTableExists(name) {
 		return nil
 	}
+
+	if name == k.metadataTableName {
+		// If the metadata table is being created for the first time
+		// the loadShardIDsFromDynamo() call in refreshShards() will
+		// always return an empty shard list.
+		//
+		// This would cause the consumer to wait until the next leader
+		// election to start receiving events, because that's the only
+		// time loadShardIDsFromKinesis() is called.
+		//
+		// To fix this, we mark this run as "first run", which can be
+		// used by refreshShards() to skip the cache.
+		atomic.StoreInt32(&k.firstRun, 1)
+	}
+
 	_, err := k.dynamodb.CreateTable(&dynamodb.CreateTableInput{
 		AttributeDefinitions: []*dynamodb.AttributeDefinition{{
 			AttributeName: aws.String(distKey),
