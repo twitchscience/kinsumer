@@ -268,33 +268,22 @@ func (k *Kinsumer) registerLeadership() (bool, error) {
 // you should use the cache, returned by loadShardIDsFromDynamo below.
 //TODO: Write unit test - needs kinesis mocking
 func loadShardIDsFromKinesis(kin kinesisiface.KinesisAPI, streamName string) ([]string, error) {
-	var (
-		innerError error
-		shards     []*kinesis.Shard
-	)
+	var innerError error
 
-	params := &kinesis.DescribeStreamInput{
+	res, err := kin.ListShards(&kinesis.ListShardsInput{
 		StreamName: aws.String(streamName),
-		Limit:      aws.Int64(10000),
-	}
-
-	err := kin.DescribeStreamPages(params, func(page *kinesis.DescribeStreamOutput, _ bool) bool {
-		if page == nil || page.StreamDescription == nil {
-			innerError = ErrKinesisCantDescribeStream
-			return false
-		}
-
-		switch aws.StringValue(page.StreamDescription.StreamStatus) {
-		case "CREATING":
-			innerError = ErrKinesisBeingCreated
-			return false
-		case "DELETING":
-			innerError = ErrKinesisBeingDeleted
-			return false
-		}
-		shards = append(shards, page.StreamDescription.Shards...)
-		return aws.BoolValue(page.StreamDescription.HasMoreShards)
 	})
+
+	if err != nil {
+		if e, ok := err.(awserr.Error); ok {
+			switch e.Code() {
+			case "ResourceInUseException":
+				innerError = ErrStreamBusy
+			case "ResourceNotFoundException":
+				innerError = ErrNoSuchStream
+			}
+		}
+	}
 
 	if innerError != nil {
 		return nil, innerError
@@ -304,8 +293,8 @@ func loadShardIDsFromKinesis(kin kinesisiface.KinesisAPI, streamName string) ([]
 		return nil, err
 	}
 
-	shardIDs := make([]string, len(shards))
-	for i, s := range shards {
+	shardIDs := make([]string, len(res.Shards))
+	for i, s := range res.Shards {
 		shardIDs[i] = aws.StringValue(s.ShardId)
 	}
 	sort.Strings(shardIDs)
