@@ -6,7 +6,6 @@ go:
 - "1.9"
 - "1.10"
 - "1.11"
-- tip
 go_import_path: github.com/twitchscience/kinsumer
 install:
 - go get github.com/alecthomas/gometalinter
