@@ -67,14 +67,14 @@ func (k *Kinsumer) becomeLeader() {
 			case <-leaderActions.C:
 				ok, err := k.registerLeadership()
 				if err != nil {
-					k.errors <- fmt.Errorf("Error registering leadership: %v", err)
+					k.errors <- fmt.Errorf("error registering leadership: %v", err)
 				}
 				if !ok {
 					continue
 				}
 				err = k.performLeaderActions()
 				if err != nil {
-					k.errors <- fmt.Errorf("Error performing repeated leader actions: %v", err)
+					k.errors <- fmt.Errorf("error performing repeated leader actions: %v", err)
 				}
 			case <-k.leaderLost:
 				return
