@@ -35,10 +35,8 @@ var (
 	// ErrConfigInvalidDynamoCapacity - Dynamo read/write capacity cannot be 0
 	ErrConfigInvalidDynamoCapacity = errors.New("Dynamo read/write capacity cannot be 0")
 
-	// ErrKinesisCantDescribeStream - Unable to describe stream
-	ErrKinesisCantDescribeStream = errors.New("Unable to describe stream")
-	// ErrKinesisBeingCreated -Str eam is busy being created
-	ErrKinesisBeingCreated = errors.New("Stream is busy being created")
-	// ErrKinesisBeingDeleted -Str eam is busy being deleted
-	ErrKinesisBeingDeleted = errors.New("Stream is busy being deleted")
+	// ErrStreamBusy - Stream is busy
+	ErrStreamBusy = errors.New("Stream is busy")
+	// ErrNoSuchStream - No such stream
+	ErrNoSuchStream = errors.New("No such stream")
 )
