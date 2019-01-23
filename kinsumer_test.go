@@ -552,6 +552,11 @@ func TestSplit(t *testing.T) {
 
 	readEvents(t, output, numberOfEventsToTest)
 
+	// Sleep here to wait for stuff to calm down. When running this test
+	// by itself it passes without the sleep but when running all the tests
+	// it fails. Since we delete all tables I suspect it's kinesalite having
+	// issues.
+	time.Sleep(500 * time.Millisecond)
 	// Validate finished shards are no longer in the cache
 	var expectedShards []string
 	for _, shard := range newShards {
