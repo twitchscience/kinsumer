@@ -2,7 +2,7 @@
 
 Native Go consumer for AWS Kinesis streams.
 
-[![Build Status](https://travis-ci.org/TwitchScience/kinsumer.svg?branch=master)](https://travis-ci.org/TwitchScience/kinsumer) [![Go Report Card](https://goreportcard.com/badge/github.com/twitchscience/kinsumer)](https://goreportcard.com/report/github.com/twitchscience/kinsumer)
+[![Build Status](https://travis-ci.org/twitchscience/kinsumer.svg?branch=master)](https://travis-ci.org/TwitchScience/kinsumer) [![Go Report Card](https://goreportcard.com/badge/github.com/twitchscience/kinsumer)](https://goreportcard.com/report/github.com/twitchscience/kinsumer)
 
 ## Rationale
 There are several very good ways to consume Kinesis streams, primarily [The Amazon Kinesis Client Library](http://docs.aws.amazon.com/kinesis/latest/dev/developing-consumers-with-kcl.html), and it is recommended that be investigated as an option.
