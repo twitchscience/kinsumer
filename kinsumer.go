@@ -157,6 +157,18 @@ func (k *Kinsumer) refreshShards() (bool, error) {
 	}
 
 	shardIDs, err = loadShardIDsFromDynamo(k.dynamodb, k.metadataTableName)
+
+	if err != nil {
+		return false, err
+	}
+
+	if len(shardIDs) == 0 {
+		shardIDs, err = loadShardIDsFromKinesis(k.kinesis, k.streamName)
+		if err == nil {
+			err = k.setCachedShardIDs(shardIDs)
+		}
+	}
+
 	if err != nil {
 		return false, err
 	}
@@ -250,6 +262,7 @@ func (k *Kinsumer) dynamoCreateTableIfNotExists(name, distKey string) error {
 	if k.dynamoTableExists(name) {
 		return nil
 	}
+
 	_, err := k.dynamodb.CreateTable(&dynamodb.CreateTableInput{
 		AttributeDefinitions: []*dynamodb.AttributeDefinition{{
 			AttributeName: aws.String(distKey),
