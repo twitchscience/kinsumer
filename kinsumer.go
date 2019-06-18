@@ -323,8 +323,8 @@ func (k *Kinsumer) kinesisStreamReady() error {
 	}
 
 	status := aws.StringValue(out.StreamDescription.StreamStatus)
-	if status != "ACTIVE" {
-		return fmt.Errorf("stream %s exists but state '%s' is not 'ACTIVE'", k.streamName, status)
+	if status != "ACTIVE" && status != "UPDATING" {
+		return fmt.Errorf("stream %s exists but state '%s' is not 'ACTIVE' or 'UPDATING'", k.streamName, status)
 	}
 
 	return nil
