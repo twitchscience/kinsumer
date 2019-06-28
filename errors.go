@@ -34,6 +34,8 @@ var (
 	ErrConfigInvalidStats = errors.New("stats cannot be nil")
 	// ErrConfigInvalidDynamoCapacity - Dynamo read/write capacity cannot be 0
 	ErrConfigInvalidDynamoCapacity = errors.New("dynamo read/write capacity cannot be 0")
+	// ErrConfigInvalidLogger - Logger cannot be nil
+	ErrConfigInvalidLogger = errors.New("logger cannot be nil")
 
 	// ErrStreamBusy - Stream is busy
 	ErrStreamBusy = errors.New("stream is busy")

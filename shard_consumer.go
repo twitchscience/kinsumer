@@ -3,7 +3,6 @@
 package kinsumer
 
 import (
-	"log"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -189,7 +188,7 @@ mainloop:
 
 		if err != nil {
 			if awsErr, ok := err.(awserr.Error); ok {
-				log.Printf("Got error: %s (%s) retry count is %d / %d", awsErr.Message(), awsErr.OrigErr(), retryCount, maxErrorRetries)
+				k.config.logger.Log("Got error: %s (%s) retry count is %d / %d", awsErr.Message(), awsErr.OrigErr(), retryCount, maxErrorRetries)
 				if retryCount < maxErrorRetries {
 					retryCount++
 
