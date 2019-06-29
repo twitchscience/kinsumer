@@ -4,7 +4,6 @@ package kinsumer
 
 import (
 	"fmt"
-	"log"
 	"sort"
 	"time"
 
@@ -90,7 +89,7 @@ func (k *Kinsumer) unbecomeLeader() {
 		return
 	}
 	if k.leaderLost == nil {
-		log.Printf("Lost leadership but k.leaderLost was nil")
+		k.config.logger.Log("Lost leadership but k.leaderLost was nil")
 	} else {
 		close(k.leaderLost)
 		k.leaderWG.Wait()

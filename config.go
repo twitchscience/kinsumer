@@ -11,7 +11,8 @@ import (
 
 // Config holds all configuration values for a single Kinsumer instance
 type Config struct {
-	stats StatReceiver
+	stats  StatReceiver
+	logger Logger
 
 	// ---------- [ Per Shard Worker ] ----------
 	// Time to sleep if no records are found
@@ -54,6 +55,7 @@ func NewConfig() Config {
 		dynamoReadCapacity:    10,
 		dynamoWriteCapacity:   10,
 		dynamoWaiterDelay:     3 * time.Second,
+		logger:                &DefaultLogger{},
 	}
 }
 
@@ -111,6 +113,12 @@ func (c Config) WithDynamoWaiterDelay(delay time.Duration) Config {
 	return c
 }
 
+// WithLogger returns a Config with a modified logger
+func (c Config) WithLogger(logger Logger) Config {
+	c.logger = logger
+	return c
+}
+
 // Verify that a config struct has sane and valid values
 func validateConfig(c *Config) error {
 	if c.throttleDelay < 200*time.Millisecond {
@@ -143,6 +151,10 @@ func validateConfig(c *Config) error {
 
 	if c.dynamoReadCapacity == 0 || c.dynamoWriteCapacity == 0 {
 		return ErrConfigInvalidDynamoCapacity
+	}
+
+	if c.logger == nil {
+		return ErrConfigInvalidLogger
 	}
 
 	return nil
