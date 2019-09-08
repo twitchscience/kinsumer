@@ -38,3 +38,6 @@ It's possible to run the test against real AWS resources, but the tests create a
 Make sure you have your credentials setup in a way that [aws-sdk-go](https://github.com/aws/aws-sdk-go) is happy with, or be running on an EC2 instance.
 
 Then `go test . -dynamo_endpoint= -kinesis_endpoint=  -resource_change_timeout=30s`
+
+=864 
+ 43

@@ -464,7 +464,7 @@ func (k *Kinsumer) Next() (data []byte, err error) {
 	return data, err
 }
 
-// Next is a blocking function used to get the next record from the kinesis queue, or errors that
+// NextRecord is a blocking function used to get the next record from the kinesis queue, or errors that
 // occurred during the processing of kinesis. It's up to the caller to stop processing by calling 'Stop()'
 //
 // if err is non nil an error occurred in the system.
