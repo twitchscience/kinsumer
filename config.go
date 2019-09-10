@@ -4,6 +4,8 @@ package kinsumer
 
 import (
 	"time"
+
+	"github.com/aws/aws-sdk-go/service/kinesis"
 )
 
 //TODO: Update documentation to include the defaults
@@ -41,11 +43,17 @@ type Config struct {
 	dynamoWriteCapacity int64
 	// Time to wait between attempts to verify tables were created/deleted completely
 	dynamoWaiterDelay time.Duration
+
+	// ---------- [ For the Stream Starting Point ] ----------
+	shardIteratorType string
+	atTimestamp       *time.Time
+	sequenceNumber    string
 }
 
 // NewConfig returns a default Config struct
 func NewConfig() Config {
 	return Config{
+		shardIteratorType:     kinesis.ShardIteratorTypeAfterSequenceNumber,
 		throttleDelay:         250 * time.Millisecond,
 		commitFrequency:       1000 * time.Millisecond,
 		shardCheckFrequency:   1 * time.Minute,
@@ -116,6 +124,39 @@ func (c Config) WithDynamoWaiterDelay(delay time.Duration) Config {
 // WithLogger returns a Config with a modified logger
 func (c Config) WithLogger(logger Logger) Config {
 	c.logger = logger
+	return c
+}
+
+// WithShardIteratorAtTimestamp returns a Config with a modified at timestamp and sets shardIteratorType to AT_TIMESTAMP
+func (c Config) WithShardIteratorAtTimestamp(t time.Time) Config {
+	c.shardIteratorType = kinesis.ShardIteratorTypeAtTimestamp
+	c.atTimestamp = &t
+	return c
+}
+
+// WithShardIteratorLatest returns a Config that sets shardIteratorType to LATEST
+func (c Config) WithShardIteratorLatest() Config {
+	c.shardIteratorType = kinesis.ShardIteratorTypeLatest
+	return c
+}
+
+// WithShardIteratorLatest returns a Config that sets shardIteratorType to AT_SEQUENCE_NUMBER
+func (c Config) WithShardIteratorAtSequenceNumber(sequenceNumber string) Config {
+	c.shardIteratorType = kinesis.ShardIteratorTypeLatest
+	c.sequenceNumber = sequenceNumber
+	return c
+}
+
+// WithShardIteratorAfterSequenceNumber returns a Config that sets shardIteratorType to AFTER_SEQUENCE_NUMBER
+func (c Config) WithShardIteratorAfterSequenceNumber(sequenceNumber string) Config {
+	c.shardIteratorType = kinesis.ShardIteratorTypeAfterSequenceNumber
+	c.sequenceNumber = sequenceNumber
+	return c
+}
+
+// WithShardIteratorTrimHorizon returns a Config that sets shardIteratorType to TRIM_HORIZON
+func (c Config) WithShardIteratorTrimHorizon() Config {
+	c.shardIteratorType = kinesis.ShardIteratorTypeTrimHorizon
 	return c
 }
 

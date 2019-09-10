@@ -26,18 +26,39 @@ const (
 )
 
 // getShardIterator gets a shard iterator after the last sequence number we read or at the start of the stream
-func getShardIterator(k kinesisiface.KinesisAPI, streamName string, shardID string, sequenceNumber string) (string, error) {
-	shardIteratorType := kinesis.ShardIteratorTypeAfterSequenceNumber
-
-	// If we do not have a sequenceNumber yet we need to get a shardIterator
-	// from the horizon
+func getShardIterator(
+	k kinesisiface.KinesisAPI,
+	streamName, shardID, shardIteratorType, sequenceNumber string,
+	timestamp *time.Time,
+	fromCheckpoint bool,
+) (string, error) {
 	ps := aws.String(sequenceNumber)
-	if sequenceNumber == "" {
-		shardIteratorType = kinesis.ShardIteratorTypeTrimHorizon
+
+	var ts *time.Time
+
+	switch shardIteratorType {
+	case kinesis.ShardIteratorTypeAfterSequenceNumber, kinesis.ShardIteratorTypeAtSequenceNumber:
+		// If we do not have a sequenceNumber yet we need to get a shardIterator
+		// from the horizon
+		if sequenceNumber == "" {
+			shardIteratorType = kinesis.ShardIteratorTypeTrimHorizon
+			ps = nil
+		} else if sequenceNumber == "LATEST" {
+			shardIteratorType = kinesis.ShardIteratorTypeLatest
+			ps = nil
+		}
+
+	case kinesis.ShardIteratorTypeLatest, kinesis.ShardIteratorTypeTrimHorizon, kinesis.ShardIteratorTypeAtTimestamp:
+		if timestamp != nil {
+			ts = timestamp
+		}
 		ps = nil
-	} else if sequenceNumber == "LATEST" {
-		shardIteratorType = kinesis.ShardIteratorTypeLatest
-		ps = nil
+	}
+	if fromCheckpoint && sequenceNumber != "" && sequenceNumber != "LATEST" {
+		// we have a sequence number and se should from it
+		shardIteratorType = kinesis.ShardIteratorTypeAfterSequenceNumber
+		ps = aws.String(sequenceNumber)
+		ts = nil
 	}
 
 	resp, err := k.GetShardIterator(&kinesis.GetShardIteratorInput{
@@ -45,6 +66,7 @@ func getShardIterator(k kinesisiface.KinesisAPI, streamName string, shardID stri
 		ShardIteratorType:      &shardIteratorType,
 		StartingSequenceNumber: ps,
 		StreamName:             aws.String(streamName),
+		Timestamp:              ts,
 	})
 	return aws.StringValue(resp.ShardIterator), err
 }
@@ -137,8 +159,20 @@ func (k *Kinsumer) consume(shardID string) {
 		}
 	}()
 
+	if k.config.sequenceNumber != "" {
+		sequenceNumber = k.config.sequenceNumber
+	}
+
 	// Get the starting shard iterator
-	iterator, err := getShardIterator(k.kinesis, k.streamName, shardID, sequenceNumber)
+	iterator, err := getShardIterator(
+		k.kinesis,
+		k.streamName,
+		shardID,
+		k.config.shardIteratorType,
+		sequenceNumber,
+		k.config.atTimestamp,
+		k.fromCheckpoint,
+	)
 	if err != nil {
 		k.shardErrors <- shardConsumerError{shardID: shardID, action: "getShardIterator", err: err}
 		return
