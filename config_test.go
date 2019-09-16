@@ -61,7 +61,8 @@ func TestConfigWithMethods(t *testing.T) {
 		WithShardCheckFrequency(1 * time.Second).
 		WithLeaderActionFrequency(1 * time.Second).
 		WithThrottleDelay(1 * time.Second).
-		WithStats(stats)
+		WithStats(stats).
+		WithUseListShardsForKinesisStreamReady(true)
 
 	err := validateConfig(&config)
 	require.NoError(t, err)
@@ -72,4 +73,5 @@ func TestConfigWithMethods(t *testing.T) {
 	require.Equal(t, 1*time.Second, config.shardCheckFrequency)
 	require.Equal(t, 1*time.Second, config.leaderActionFrequency)
 	require.Equal(t, stats, config.stats)
+	require.Equal(t, true, config.useListShardsForKinesisStreamReady)
 }
