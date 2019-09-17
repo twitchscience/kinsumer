@@ -16,7 +16,11 @@ type Statsd struct {
 
 // New creates a new Statsd statreceiver with a new instance of a cactus statter
 func New(addr, prefix string) (*Statsd, error) {
-	sd, err := statsd.NewClient(addr, prefix)
+	sd, err := statsd.NewClientWithConfig(&statsd.ClientConfig{
+		Address: addr,
+		Prefix:  prefix,
+	})
+
 	if err != nil {
 		return nil, err
 	}
