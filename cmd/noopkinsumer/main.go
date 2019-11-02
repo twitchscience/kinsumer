@@ -14,7 +14,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/twinj/uuid"
+	"github.com/google/uuid"
 	"github.com/twitchscience/kinsumer"
 	"github.com/twitchscience/kinsumer/statsd"
 )
@@ -61,7 +61,7 @@ func initKinsumer() {
 
 	// kinsumer needs a way to differentiate between running clients, generally you want to use information
 	// about the machine it is running on like ip. For this example we'll use a uuid
-	name := uuid.NewV4().String()
+	name := uuid.New().String()
 
 	k, err = kinsumer.NewWithSession(session, kinesisStreamName, "noopkinsumer", name, config)
 	if err != nil {
