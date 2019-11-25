@@ -11,8 +11,9 @@ import (
 
 // Config holds all configuration values for a single Kinsumer instance
 type Config struct {
-	stats  StatReceiver
-	logger Logger
+	stats               StatReceiver
+	logger              Logger
+	manualCheckpointing bool
 
 	// ---------- [ Per Shard Worker ] ----------
 	// Time to sleep if no records are found
@@ -57,6 +58,15 @@ func NewConfig() Config {
 		dynamoWaiterDelay:     3 * time.Second,
 		logger:                &DefaultLogger{},
 	}
+}
+
+// WithManualCheckpointing returns a Config with a modified manual checkpointing flag
+// If set to false, records will be automatically checkpointed upon calls to Next()
+// If set to true, NextWithCheckpointer() must be used and the returned checkpointer function
+// must be called when the record is fully processed.
+func (c Config) WithManualCheckpointing(v bool) Config {
+	c.manualCheckpointing = v
+	return c
 }
 
 // WithThrottleDelay returns a Config with a modified throttle delay
