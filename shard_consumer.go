@@ -114,6 +114,7 @@ func (k *Kinsumer) captureShard(shardID string) (*checkpointer, error) {
 func (k *Kinsumer) consume(shardID string) {
 	defer k.waitGroup.Done()
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	stop := k.stop
 
 	// commitTicker is used to periodically commit, so that we don't hammer dynamo every time
