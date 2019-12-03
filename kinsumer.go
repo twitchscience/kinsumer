@@ -472,12 +472,16 @@ func (k *Kinsumer) Next() (data []byte, err error) {
 
 // NextWithCheckpointer is a blocking function used to get the next record from the kinesis queue, or errors that
 // occurred during the processing of kinesis. It's up to the caller to stop processing by calling 'Stop()'
-// checkpointer should be called when the record is fully processed. Kinsumer will ensure checkpointer calls are ordered.
+// checkpointer must be called when the record is fully processed. Kinsumer will ensure checkpointer calls are ordered.
 // WARNING: checkpointer() can block indefinitely if not called in order.
 //
 // if err is non nil an error occurred in the system.
 // if err is nil and data is nil then kinsumer has been stopped
 func (k *Kinsumer) NextWithCheckpointer() (data []byte, checkpointer func(), err error) {
+	if !k.config.manualCheckpointing {
+		return nil, nil, fmt.Errorf("manual checkpointing is disabled, use Next() instead")
+	}
+
 	select {
 	case err = <-k.errors:
 		return nil, nil, err
@@ -485,11 +489,7 @@ func (k *Kinsumer) NextWithCheckpointer() (data []byte, checkpointer func(), err
 		if ok {
 			k.config.stats.EventToClient(*record.record.ApproximateArrivalTimestamp, record.retrievedAt)
 			data = record.record.Data
-			if k.config.manualCheckpointing {
-				checkpointer = record.checkpointer.updateFunc(aws.StringValue(record.record.SequenceNumber))
-			} else {
-				checkpointer = func() { /* no-op since automatic checkpointing is enabled */ }
-			}
+			checkpointer = record.checkpointer.updateFunc(aws.StringValue(record.record.SequenceNumber))
 		}
 	}
 
