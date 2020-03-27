@@ -180,12 +180,12 @@ func diffShardIDs(curShardIDs, cachedShardIDs []string, checkpoints map[string]*
 				updatedShardIDs = append(updatedShardIDs, s)
 			}
 		} else {
-			// If a shard is no longer returned by DescribeStream, drop it.
+			// If a shard is no longer returned by ListShards, drop it.
 			changed = true
 		}
 	}
 	for s := range cur {
-		// If the shard is returned by DescribeStream and not already Finished, add it.
+		// If the shard is returned by ListShards and not already Finished, add it.
 		if c, ok := checkpoints[s]; !ok || c.Finished == nil {
 			updatedShardIDs = append(updatedShardIDs, s)
 			changed = true
@@ -262,9 +262,9 @@ func (k *Kinsumer) registerLeadership() (bool, error) {
 }
 
 // loadShardIDsFromKinesis returns a sorted slice of shardIDs from kinesis.
-// This function uses kinesis.DescribeStream, which has a very low throttling limit of 10/s per account.
-// To avoid hitting that limit, unless you need an as-recent-as-possible list,
-// you should use the cache, returned by loadShardIDsFromDynamo below.
+// This function used to use kinesis.DescribeStream, which has a very low throttling limit of 10/s per account.
+// As such, the leader is responsible for caching the shard list.
+// Now that it uses ListShards, you could potentially query the shard list directly from all clients.
 //TODO: Write unit test - needs kinesis mocking
 func loadShardIDsFromKinesis(kin kinesisiface.KinesisAPI, streamName string) ([]string, error) {
 	var innerError error
@@ -272,6 +272,7 @@ func loadShardIDsFromKinesis(kin kinesisiface.KinesisAPI, streamName string) ([]
 	shardIDs := make([]string, 0)
 	var token *string
 
+	// Manually page the results since aws-sdk-go has no ListShardsPages.
 	for {
 		inputParams := kinesis.ListShardsInput{}
 		if token != nil {
