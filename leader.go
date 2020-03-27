@@ -269,32 +269,44 @@ func (k *Kinsumer) registerLeadership() (bool, error) {
 func loadShardIDsFromKinesis(kin kinesisiface.KinesisAPI, streamName string) ([]string, error) {
 	var innerError error
 
-	res, err := kin.ListShards(&kinesis.ListShardsInput{
-		StreamName: aws.String(streamName),
-	})
+	shardIDs := make([]string, 0)
+	var token *string
 
-	if err != nil {
-		if e, ok := err.(awserr.Error); ok {
-			switch e.Code() {
-			case "ResourceInUseException":
-				innerError = ErrStreamBusy
-			case "ResourceNotFoundException":
-				innerError = ErrNoSuchStream
+	for {
+		inputParams := kinesis.ListShardsInput{}
+		if token != nil {
+			inputParams.NextToken = token
+		} else {
+			inputParams.StreamName = aws.String(streamName)
+		}
+		res, err := kin.ListShards(&inputParams)
+
+		if err != nil {
+			if e, ok := err.(awserr.Error); ok {
+				switch e.Code() {
+				case "ResourceInUseException":
+					innerError = ErrStreamBusy
+				case "ResourceNotFoundException":
+					innerError = ErrNoSuchStream
+				}
 			}
 		}
-	}
 
-	if innerError != nil {
-		return nil, innerError
-	}
+		if innerError != nil {
+			return nil, innerError
+		}
 
-	if err != nil {
-		return nil, err
-	}
+		if err != nil {
+			return nil, err
+		}
 
-	shardIDs := make([]string, len(res.Shards))
-	for i, s := range res.Shards {
-		shardIDs[i] = aws.StringValue(s.ShardId)
+		for _, s := range res.Shards {
+			shardIDs = append(shardIDs, aws.StringValue(s.ShardId))
+		}
+		if res.NextToken == nil {
+			break
+		}
+		token = res.NextToken
 	}
 	sort.Strings(shardIDs)
 
