@@ -233,8 +233,8 @@ DrainLoop:
 	}
 }
 
-// dynamoTableActive returns an error if the given table is not ACTIVE
-func (k *Kinsumer) dynamoTableActive(name string) error {
+// dynamoTableReady returns an error if the given table is not ACTIVE or UPDATING
+func (k *Kinsumer) dynamoTableReady(name string) error {
 	out, err := k.dynamodb.DescribeTable(&dynamodb.DescribeTableInput{
 		TableName: aws.String(name),
 	})
@@ -242,8 +242,9 @@ func (k *Kinsumer) dynamoTableActive(name string) error {
 		return fmt.Errorf("error describing table %s: %v", name, err)
 	}
 	status := aws.StringValue(out.Table.TableStatus)
-	if status != "ACTIVE" {
-		return fmt.Errorf("table %s exists but state '%s' is not 'ACTIVE'", name, status)
+	if status != "ACTIVE" && status != "UPDATING" {
+		return fmt.Errorf("table %s exists but state '%s' is not 'ACTIVE' or 'UPDATING'",
+			name, status)
 	}
 	return nil
 }
@@ -331,14 +332,14 @@ func (k *Kinsumer) kinesisStreamReady() error {
 }
 
 // Run runs the main kinesis consumer process. This is a non-blocking call, use Stop() to force it to return.
-// This goroutine is responsible for startin/stopping consumers, aggregating all consumers' records,
+// This goroutine is responsible for starting/stopping consumers, aggregating all consumers' records,
 // updating checkpointers as records are consumed, and refreshing our shard/client list and leadership
 //TODO: Can we unit test this at all?
 func (k *Kinsumer) Run() error {
-	if err := k.dynamoTableActive(k.checkpointTableName); err != nil {
+	if err := k.dynamoTableReady(k.checkpointTableName); err != nil {
 		return err
 	}
-	if err := k.dynamoTableActive(k.clientsTableName); err != nil {
+	if err := k.dynamoTableReady(k.clientsTableName); err != nil {
 		return err
 	}
 	if err := k.kinesisStreamReady(); err != nil {
