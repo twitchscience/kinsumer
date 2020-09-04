@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"github.com/aws/aws-sdk-go/service/dynamodb/expression"
 	"github.com/aws/aws-sdk-go/service/kinesis"
 	"github.com/aws/aws-sdk-go/service/kinesis/kinesisiface"
 	"github.com/google/uuid"
@@ -173,9 +174,9 @@ func (k *Kinsumer) refreshShards() (bool, error) {
 		return false, err
 	}
 
-	changed := (totalClients != k.totalClients) ||
-		(thisClient != k.thisClient) ||
-		(len(k.shardIDs) != len(shardIDs))
+	changed := totalClients != k.totalClients ||
+		thisClient != k.thisClient ||
+		len(k.shardIDs) != len(shardIDs)
 
 	if !changed {
 		for idx := range shardIDs {
@@ -207,7 +208,7 @@ func (k *Kinsumer) startConsumers() error {
 	}
 
 	for i, shard := range k.shardIDs {
-		if (i % k.totalClients) == k.thisClient {
+		if i%k.totalClients == k.thisClient {
 			k.waitGroup.Add(1)
 			assigned = true
 			go k.consume(shard)
@@ -481,6 +482,51 @@ func (k *Kinsumer) CreateRequiredTables() error {
 	})
 
 	return g.Wait()
+}
+
+func (k *Kinsumer) ResetCheckpoints(sess *session.Session) error {
+	entries, err := k.dynamodb.Scan(&dynamodb.ScanInput{TableName: aws.String(k.checkpointTableName)})
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries.Items {
+		shard := entry["Shard"].S
+
+		if shard == nil {
+			return fmt.Errorf("found %v for Shard entry", entry["Shard"].S)
+		}
+
+		err := k.updateItem(*shard)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (k *Kinsumer) updateItem(id string) error {
+	condition := expression.Name("Shard").Equal(expression.Value(id))
+	var update = expression.UpdateBuilder{}
+	exp, err := expression.NewBuilder().WithCondition(condition).WithUpdate(
+		update.Set(expression.Name("SequenceNumber"), expression.Value("LATEST")),
+	).Build()
+	if err != nil {
+		return err
+	}
+	_, err = k.dynamodb.UpdateItem(&dynamodb.UpdateItemInput{
+		TableName: aws.String(k.checkpointTableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			"Shard": {
+				S: aws.String(id),
+			},
+		},
+		ConditionExpression:       exp.Condition(),
+		UpdateExpression:          exp.Update(),
+		ExpressionAttributeValues: exp.Values(),
+		ExpressionAttributeNames:  exp.Names(),
+	})
+	return err
 }
 
 // DeleteTables will delete the dynamodb tables that were created
