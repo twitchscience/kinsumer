@@ -510,7 +510,7 @@ func (k *Kinsumer) resetCheckpointPageFactory(errChan chan<- error) func(*dynamo
 			shard := entry["Shard"].S
 
 			if shard == nil {
-				errChan <- fmt.Errorf("found %v for Shard entry", entry["Shard"].S)
+				errChan <- fmt.Errorf("found %s for Shard entry", *entry["Shard"].S)
 				return false
 			}
 
