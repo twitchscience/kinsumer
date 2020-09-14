@@ -174,9 +174,9 @@ func (k *Kinsumer) refreshShards() (bool, error) {
 		return false, err
 	}
 
-	changed := totalClients != k.totalClients ||
-		thisClient != k.thisClient ||
-		len(k.shardIDs) != len(shardIDs)
+	changed := (totalClients != k.totalClients) ||
+		(thisClient != k.thisClient) ||
+		(len(k.shardIDs) != len(shardIDs))
 
 	if !changed {
 		for idx := range shardIDs {
@@ -208,7 +208,7 @@ func (k *Kinsumer) startConsumers() error {
 	}
 
 	for i, shard := range k.shardIDs {
-		if i%k.totalClients == k.thisClient {
+		if (i % k.totalClients) == k.thisClient {
 			k.waitGroup.Add(1)
 			assigned = true
 			go k.consume(shard)
