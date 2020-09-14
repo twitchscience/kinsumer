@@ -484,27 +484,51 @@ func (k *Kinsumer) CreateRequiredTables() error {
 	return g.Wait()
 }
 
-func (k *Kinsumer) ResetCheckpoints(sess *session.Session) error {
-	entries, err := k.dynamodb.Scan(&dynamodb.ScanInput{TableName: aws.String(k.checkpointTableName)})
+func (k *Kinsumer) ResetCheckpoints() error {
+	errChan := make(chan error, 1)
+	defer close(errChan)
+	resetter := k.resetCheckpointPageFactory(errChan)
+
+	err := k.dynamodb.ScanPages(
+		&dynamodb.ScanInput{TableName: aws.String(k.checkpointTableName)},
+		resetter,
+	)
 	if err != nil {
 		return err
 	}
 
-	for _, entry := range entries.Items {
-		shard := entry["Shard"].S
-
-		if shard == nil {
-			return fmt.Errorf("found %v for Shard entry", entry["Shard"].S)
-		}
-
-		err := k.updateItem(*shard)
-		if err != nil {
-			return err
-		}
+	if err := <-errChan; err != nil {
+		return err
 	}
+
 	return nil
 }
 
+func (k *Kinsumer) resetCheckpointPageFactory(errChan chan<- error) func(*dynamodb.ScanOutput, bool) bool {
+	resetCheckpointPage := func(entries *dynamodb.ScanOutput, lastPage bool) bool {
+		for _, entry := range entries.Items {
+			shard := entry["Shard"].S
+
+			if shard == nil {
+				errChan <- fmt.Errorf("found %v for Shard entry", entry["Shard"].S)
+				return false
+			}
+
+			err := k.updateItem(*shard)
+			if err != nil {
+				errChan <- err
+				return false
+			}
+		}
+
+		if lastPage {
+			errChan <- nil
+		}
+		return true
+	}
+
+	return resetCheckpointPage
+}
 func (k *Kinsumer) updateItem(id string) error {
 	condition := expression.Name("Shard").Equal(expression.Value(id))
 	var update = expression.UpdateBuilder{}
