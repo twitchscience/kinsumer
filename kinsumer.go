@@ -505,7 +505,7 @@ func (k *Kinsumer) ResetCheckpoints() error {
 }
 
 func (k *Kinsumer) resetCheckpointPageFactory(errChan chan<- error) func(*dynamodb.ScanOutput, bool) bool {
-	resetCheckpointPage := func(entries *dynamodb.ScanOutput, lastPage bool) bool {
+	return func(entries *dynamodb.ScanOutput, lastPage bool) bool {
 		for _, entry := range entries.Items {
 			shard := entry["Shard"].S
 
@@ -526,9 +526,8 @@ func (k *Kinsumer) resetCheckpointPageFactory(errChan chan<- error) func(*dynamo
 		}
 		return true
 	}
-
-	return resetCheckpointPage
 }
+
 func (k *Kinsumer) updateItem(id string) error {
 	condition := expression.Name("Shard").Equal(expression.Value(id))
 	var update = expression.UpdateBuilder{}
