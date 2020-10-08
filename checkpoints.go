@@ -199,6 +199,25 @@ func (cp *checkpointer) commit() (bool, error) {
 	return finished, nil
 }
 
+func (cp *checkpointer) getCheckpointRecord() (checkpointRecord, error) {
+	var record checkpointRecord
+	resp, err := cp.dynamodb.GetItem(&dynamodb.GetItemInput{
+		TableName:      aws.String(cp.tableName),
+		ConsistentRead: aws.Bool(true),
+		Key: map[string]*dynamodb.AttributeValue{
+			"Shard": {S: aws.String(cp.shardID)},
+		},
+	})
+	if err != nil {
+		return checkpointRecord{}, err
+	}
+	if resp != nil {
+		// let's ignore the fact that this can fail, for now
+		dynamodbattribute.UnmarshalMap(resp.Item, &record)
+	}
+	return record, nil
+}
+
 // release releases our ownership of the checkpoint in dynamo so another client can take it
 func (cp *checkpointer) release() error {
 	now := time.Now()
@@ -212,7 +231,7 @@ func (cp *checkpointer) release() error {
 	if err != nil {
 		return err
 	}
-	if _, err = cp.dynamodb.UpdateItem(&dynamodb.UpdateItemInput{
+	if _, err := cp.dynamodb.UpdateItem(&dynamodb.UpdateItemInput{
 		TableName: aws.String(cp.tableName),
 		Key: map[string]*dynamodb.AttributeValue{
 			"Shard": {S: aws.String(cp.shardID)},
@@ -223,6 +242,13 @@ func (cp *checkpointer) release() error {
 		ConditionExpression:       aws.String("OwnerID = :ownerID"),
 		ExpressionAttributeValues: attrVals,
 	}); err != nil {
+		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "ConditionalCheckFailedException" {
+			record, getErr := cp.getCheckpointRecord()
+			if getErr != nil {
+				return fmt.Errorf("error committing checkpoint: %s (error fetching current checkpoint: %s)", err, getErr)
+			}
+			return fmt.Errorf("error committing checkpoint: %s (record: %+v)", err, record)
+		}
 		return fmt.Errorf("error releasing checkpoint: %s", err)
 	}
 

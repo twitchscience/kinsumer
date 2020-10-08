@@ -15,8 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/google/uuid"
-	"github.com/twitchscience/kinsumer"
-	"github.com/twitchscience/kinsumer/statsd"
+	"github.com/pusher/kinsumer"
+	"github.com/pusher/kinsumer/statsd"
 )
 
 var (

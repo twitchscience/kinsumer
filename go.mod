@@ -1,4 +1,4 @@
-module github.com/twitchscience/kinsumer
+module github.com/pusher/kinsumer
 
 require (
 	github.com/aws/aws-sdk-go v1.25.19
