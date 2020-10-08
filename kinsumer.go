@@ -112,8 +112,8 @@ func NewWithInterfaces(kinesis kinesisiface.KinesisAPI, dynamodb dynamodbiface.D
 		clientID:              uuid.New().String(),
 		clientName:            clientName,
 		config:                config,
-		maxAgeForClientRecord: config.shardCheckFrequency * 5,
-		maxAgeForLeaderRecord: config.leaderActionFrequency * 5,
+		maxAgeForClientRecord: config.maxAgeForClientRecord,
+		maxAgeForLeaderRecord: config.maxAgeForLeaderRecord,
 	}
 	return consumer, nil
 }

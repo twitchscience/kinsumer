@@ -23,9 +23,14 @@ type Config struct {
 
 	// Delay between tests for the client or shard numbers changing
 	shardCheckFrequency time.Duration
+
+	// Max "lease" time for each client
+	maxAgeForClientRecord time.Duration
 	// ---------- [ For the leader (first client alphabetically) ] ----------
 	// Time between leader actions
 	leaderActionFrequency time.Duration
+	// Max "lease" time for leader
+	maxAgeForLeaderRecord time.Duration
 
 	// ---------- [ For the entire Kinsumer ] ----------
 	// Size of the buffer for the combined records channel. When the channel fills up
@@ -50,6 +55,8 @@ func NewConfig() Config {
 		commitFrequency:       1000 * time.Millisecond,
 		shardCheckFrequency:   1 * time.Minute,
 		leaderActionFrequency: 1 * time.Minute,
+		maxAgeForClientRecord: 5 * time.Minute,
+		maxAgeForLeaderRecord: 5 * time.Minute,
 		bufferSize:            100,
 		stats:                 &NoopStatReceiver{},
 		dynamoReadCapacity:    10,
@@ -116,6 +123,18 @@ func (c Config) WithDynamoWaiterDelay(delay time.Duration) Config {
 // WithLogger returns a Config with a modified logger
 func (c Config) WithLogger(logger Logger) Config {
 	c.logger = logger
+	return c
+}
+
+// WithWithMaxAgeForClientRecord returns a Config with a modified max age for client record
+func (c Config) WithMaxAgeForClientRecord(maxAge time.Duration) Config {
+	c.maxAgeForClientRecord = maxAge
+	return c
+}
+
+// WithWithMaxAgeForLeaderRecord returns a Config with a modified max age for leader record
+func (c Config) WithMaxAgeForLeaderRecord(maxAge time.Duration) Config {
+	c.maxAgeForLeaderRecord = maxAge
 	return c
 }
 
