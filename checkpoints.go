@@ -183,12 +183,19 @@ func (cp *checkpointer) commit() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err = cp.dynamodb.PutItem(&dynamodb.PutItemInput{
+	if _, err := cp.dynamodb.PutItem(&dynamodb.PutItemInput{
 		TableName:                 aws.String(cp.tableName),
 		Item:                      item,
 		ConditionExpression:       aws.String("OwnerID = :ownerID"),
 		ExpressionAttributeValues: attrVals,
 	}); err != nil {
+		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "ConditionalCheckFailedException" {
+			record, getErr := cp.getCheckpointRecord()
+			if getErr != nil {
+				return false, fmt.Errorf("error committing checkpoint: %s (error fetching current record: %s)", err, getErr)
+			}
+			return false, fmt.Errorf("error committing checkpoint: %s (record: %+v)", err, record)
+		}
 		return false, fmt.Errorf("error committing checkpoint: %s", err)
 	}
 
