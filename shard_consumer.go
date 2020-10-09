@@ -81,7 +81,8 @@ func (k *Kinsumer) captureShard(shardID string) (*checkpointer, error) {
 			k.clientName,
 			k.clientID,
 			k.maxAgeForClientRecord,
-			k.config.stats)
+			k.config.stats,
+			k.config.logger)
 		if err != nil {
 			return nil, err
 		}

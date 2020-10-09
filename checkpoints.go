@@ -30,6 +30,7 @@ type checkpointer struct {
 	mutex                 sync.Mutex
 	finished              bool
 	finalSequenceNumber   string
+	logger                Logger
 }
 
 type checkpointRecord struct {
@@ -55,10 +56,12 @@ func capture(
 	ownerName string,
 	ownerID string,
 	maxAgeForClientRecord time.Duration,
-	stats StatReceiver) (*checkpointer, error) {
+	stats StatReceiver,
+	logger Logger) (*checkpointer, error) {
 
 	cutoff := time.Now().Add(-maxAgeForClientRecord).UnixNano()
 
+	logger.Log("attempting to capture shard '%s' with cutoff '%s'", shardID, cutoff)
 	// Grab the entry from dynamo assuming there is one
 	resp, err := dynamodbiface.GetItem(&dynamodb.GetItemInput{
 		TableName:      aws.String(tableName),
@@ -80,6 +83,7 @@ func capture(
 
 	// If the record is marked as owned by someone else, and has not expired
 	if record.OwnerID != nil && record.LastUpdate > cutoff {
+		logger.Log("record is marked as owned by someone else and has not yet expired, %+v", record)
 		// We fail to capture it
 		return nil, nil
 	}
@@ -118,6 +122,7 @@ func capture(
 		ExpressionAttributeValues: attrVals,
 	}); err != nil {
 		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "ConditionalCheckFailedException" {
+			logger.Log("failed to capture shard '%s'", shardID)
 			// We failed to capture it
 			return nil, nil
 		}
@@ -134,6 +139,7 @@ func capture(
 		sequenceNumber:        aws.StringValue(record.SequenceNumber),
 		maxAgeForClientRecord: maxAgeForClientRecord,
 		captured:              true,
+		logger:                logger,
 	}
 
 	return checkpointer, nil
@@ -192,9 +198,10 @@ func (cp *checkpointer) commit() (bool, error) {
 		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "ConditionalCheckFailedException" {
 			record, getErr := cp.getCheckpointRecord()
 			if getErr != nil {
-				return false, fmt.Errorf("error committing checkpoint: %s (error fetching current record: %s)", err, getErr)
+				cp.logger.Log("error fetching current checkpoint record: %s", getErr)
+			} else {
+				cp.logger.Log("error commiting checkpoint for '%s', owned by someone else, current record: %+v", cp.shardID, record)
 			}
-			return false, fmt.Errorf("error committing checkpoint: %s (record: %+v)", err, record)
 		}
 		return false, fmt.Errorf("error committing checkpoint: %s", err)
 	}
@@ -219,10 +226,10 @@ func (cp *checkpointer) getCheckpointRecord() (checkpointRecord, error) {
 		return checkpointRecord{}, err
 	}
 	if resp != nil {
-		// let's ignore the fact that this can fail, for now
-		dynamodbattribute.UnmarshalMap(resp.Item, &record)
+		err = dynamodbattribute.UnmarshalMap(resp.Item, &record)
+		cp.logger.Log("failed to unmarshal checkpoint record: %s", err)
 	}
-	return record, nil
+	return record, err
 }
 
 // release releases our ownership of the checkpoint in dynamo so another client can take it
@@ -252,9 +259,10 @@ func (cp *checkpointer) release() error {
 		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "ConditionalCheckFailedException" {
 			record, getErr := cp.getCheckpointRecord()
 			if getErr != nil {
-				return fmt.Errorf("error committing checkpoint: %s (error fetching current checkpoint: %s)", err, getErr)
+				cp.logger.Log("error fetching current checkpoint record: %s", getErr)
+			} else {
+				cp.logger.Log("error releasing checkpoint for '%s', owned by someone else, current record: %+v", cp.shardID, record)
 			}
-			return fmt.Errorf("error committing checkpoint: %s (record: %+v)", err, record)
 		}
 		return fmt.Errorf("error releasing checkpoint: %s", err)
 	}
