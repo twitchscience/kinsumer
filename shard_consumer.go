@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/kinesis"
 	"github.com/aws/aws-sdk-go/service/kinesis/kinesisiface"
+	"github.com/awslabs/kinesis-aggregation/go/deaggregator"
 )
 
 const (
@@ -63,7 +64,10 @@ func getRecords(k kinesisiface.KinesisAPI, iterator string) (records []*kinesis.
 		return nil, "", 0, err
 	}
 
-	records = output.Records
+	records, err = deaggregator.DeaggregateRecords(output.Records)
+	if err != nil {
+		records = output.Records
+	}
 	nextIterator = aws.StringValue(output.NextShardIterator)
 	lag = time.Duration(aws.Int64Value(output.MillisBehindLatest)) * time.Millisecond
 
