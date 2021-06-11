@@ -316,6 +316,15 @@ func (k *Kinsumer) dynamoDeleteTableIfExists(name string) error {
 
 // kinesisStreamReady returns an error if the given stream is not ACTIVE
 func (k *Kinsumer) kinesisStreamReady() error {
+	if k.config.useListShardsForKinesisStreamReady {
+		_, err := k.kinesis.ListShards(&kinesis.ListShardsInput{
+			StreamName: aws.String(k.streamName),
+		})
+		if err != nil {
+			return fmt.Errorf("error listing shards for stream %s: %v", k.streamName, err)
+		}
+		return nil
+	}
 	out, err := k.kinesis.DescribeStream(&kinesis.DescribeStreamInput{
 		StreamName: aws.String(k.streamName),
 	})
@@ -327,7 +336,6 @@ func (k *Kinsumer) kinesisStreamReady() error {
 	if status != "ACTIVE" && status != "UPDATING" {
 		return fmt.Errorf("stream %s exists but state '%s' is not 'ACTIVE' or 'UPDATING'", k.streamName, status)
 	}
-
 	return nil
 }
 
