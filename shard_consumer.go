@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/kinesis"
 	"github.com/aws/aws-sdk-go/service/kinesis/kinesisiface"
 )
@@ -194,7 +195,9 @@ mainloop:
 					origErrStr = fmt.Sprintf("(%s) ", awsErr.OrigErr())
 				}
 				k.config.logger.Log("Got error: %s %s %sretry count is %d / %d", awsErr.Code(), awsErr.Message(), origErrStr, retryCount, maxErrorRetries)
-				if retryCount < maxErrorRetries {
+				// Only retry for errors that should be retried; notably, don't retry serialization errors because something bad is happening
+				shouldRetry := request.IsErrorRetryable(err) || request.IsErrorThrottle(err)
+				if shouldRetry && retryCount < maxErrorRetries {
 					retryCount++
 
 					// casting retryCount here to time.Duration purely for the multiplication, there is
