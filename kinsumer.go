@@ -60,6 +60,7 @@ type Kinsumer struct {
 	leaderWG              sync.WaitGroup            // waitGroup for the leader loop
 	maxAgeForClientRecord time.Duration             // Cutoff for client/checkpoint records we read from dynamodb before we assume the record is stale
 	maxAgeForLeaderRecord time.Duration             // Cutoff for leader/shard cache records we read from dynamodb before we assume the record is stale
+	fromCheckpoint        bool                      // if there is already a consumer from the shard, we should move on from the checkpoint
 }
 
 // New returns a Kinsumer Interface with default kinesis and dynamodb instances, to be used in ec2 instances to get default auth and config
@@ -203,6 +204,8 @@ func (k *Kinsumer) startConsumers() error {
 	assigned := false
 
 	if k.thisClient >= len(k.shardIDs) {
+		// as there is already a consumer running, we should move from checkpoint onwards
+		k.fromCheckpoint = true
 		return nil
 	}
 
