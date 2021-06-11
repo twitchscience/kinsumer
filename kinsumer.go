@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"github.com/aws/aws-sdk-go/service/dynamodb/expression"
 	"github.com/aws/aws-sdk-go/service/kinesis"
 	"github.com/aws/aws-sdk-go/service/kinesis/kinesisiface"
 	"github.com/google/uuid"
@@ -481,6 +482,74 @@ func (k *Kinsumer) CreateRequiredTables() error {
 	})
 
 	return g.Wait()
+}
+
+func (k *Kinsumer) ResetCheckpoints() error {
+	errChan := make(chan error, 1)
+	defer close(errChan)
+	resetter := k.resetCheckpointPageFactory(errChan)
+
+	err := k.dynamodb.ScanPages(
+		&dynamodb.ScanInput{TableName: aws.String(k.checkpointTableName)},
+		resetter,
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := <-errChan; err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (k *Kinsumer) resetCheckpointPageFactory(errChan chan<- error) func(*dynamodb.ScanOutput, bool) bool {
+	return func(entries *dynamodb.ScanOutput, lastPage bool) bool {
+		for _, entry := range entries.Items {
+			shard := entry["Shard"].S
+
+			if shard == nil {
+				errChan <- fmt.Errorf("found %s for Shard entry", *entry["Shard"].S)
+				return false
+			}
+
+			err := k.updateItem(*shard)
+			if err != nil {
+				errChan <- err
+				return false
+			}
+		}
+
+		if lastPage {
+			errChan <- nil
+		}
+		return true
+	}
+}
+
+func (k *Kinsumer) updateItem(id string) error {
+	condition := expression.Name("Shard").Equal(expression.Value(id))
+	var update = expression.UpdateBuilder{}
+	exp, err := expression.NewBuilder().WithCondition(condition).WithUpdate(
+		update.Set(expression.Name("SequenceNumber"), expression.Value("LATEST")),
+	).Build()
+	if err != nil {
+		return err
+	}
+	_, err = k.dynamodb.UpdateItem(&dynamodb.UpdateItemInput{
+		TableName: aws.String(k.checkpointTableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			"Shard": {
+				S: aws.String(id),
+			},
+		},
+		ConditionExpression:       exp.Condition(),
+		UpdateExpression:          exp.Update(),
+		ExpressionAttributeValues: exp.Values(),
+		ExpressionAttributeNames:  exp.Names(),
+	})
+	return err
 }
 
 // DeleteTables will delete the dynamodb tables that were created
