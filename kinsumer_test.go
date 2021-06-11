@@ -615,3 +615,84 @@ ProcessLoop:
 
 	t.Logf("Got all %d out of %d events\n", total, numberOfEventsToTest)
 }
+
+// This is not a real final test. It's just a harness for development and to kind of think through the interface
+func TestKinsumerRecord(t *testing.T) {
+	const (
+		numberOfEventsToTest = 4321
+		numberOfClients      = 3
+	)
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	k, d := KinesisAndDynamoInstances()
+
+	defer func() {
+		err := CleanupTestEnvironment(t, k, d)
+		require.NoError(t, err, "Problems cleaning up the test environment")
+	}()
+
+	err := SetupTestEnvironment(t, k, d)
+	require.NoError(t, err, "Problems setting up the test environment")
+
+	clients := make([]*Kinsumer, numberOfClients)
+	eventsPerClient := make([]int, numberOfClients)
+
+	output := make(chan int, numberOfClients)
+	var waitGroup sync.WaitGroup
+
+	config := NewConfig().WithBufferSize(numberOfEventsToTest)
+	config = config.WithShardCheckFrequency(500 * time.Millisecond)
+	config = config.WithLeaderActionFrequency(500 * time.Millisecond)
+
+	for i := 0; i < numberOfClients; i++ {
+		if i > 0 {
+			time.Sleep(50 * time.Millisecond) // Add the clients slowly
+		}
+
+		clients[i], err = NewWithInterfaces(k, d, *streamName, *applicationName, fmt.Sprintf("test_%d", i), config)
+		require.NoError(t, err, "NewWithInterfaces() failed")
+
+		err = clients[i].Run()
+		require.NoError(t, err, "kinsumer.Run() failed")
+		err = clients[i].Run()
+		assert.Error(t, err, "second time calling kinsumer.Run() should fail")
+
+		waitGroup.Add(1)
+		go func(client *Kinsumer, ci int) {
+			defer waitGroup.Done()
+			for {
+				record, innerError := client.NextRecord()
+				require.NoError(t, innerError, "kinsumer.NextRecord() failed")
+				if record == nil {
+					return
+				}
+				idx, _ := strconv.Atoi(string(record.Data))
+				output <- idx
+				eventsPerClient[ci]++
+			}
+		}(clients[i], i)
+		defer func(ci int) {
+			if clients[ci] != nil {
+				clients[ci].Stop()
+			}
+		}(i)
+	}
+
+	err = SpamStream(t, k, numberOfEventsToTest)
+	require.NoError(t, err, "Problems spamming stream with events")
+
+	readEvents(t, output, numberOfEventsToTest)
+
+	for ci, client := range clients {
+		client.Stop()
+		clients[ci] = nil
+	}
+
+	drain(t, output)
+
+	// Make sure the go routines have finished
+	waitGroup.Wait()
+}
