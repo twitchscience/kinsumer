@@ -30,6 +30,7 @@ type checkpointer struct {
 	mutex                 sync.Mutex
 	finished              bool
 	finalSequenceNumber   string
+	updateSequencer       chan struct{}
 }
 
 type checkpointRecord struct {
@@ -241,6 +242,32 @@ func (cp *checkpointer) update(sequenceNumber string) {
 	defer cp.mutex.Unlock()
 	cp.dirty = cp.dirty || cp.sequenceNumber != sequenceNumber
 	cp.sequenceNumber = sequenceNumber
+}
+
+// updateFunc returns a function that will update to sequenceNumber when called, but maintains ordering
+func (cp *checkpointer) updateFunc(sequenceNumber string) func() {
+	cp.mutex.Lock()
+	defer cp.mutex.Unlock()
+	// cp.updateSequencer represents whether the previous updateFunc has been called
+	// If nil there is no previous so we should act like there was one already called
+	if cp.updateSequencer == nil {
+		cp.updateSequencer = make(chan struct{})
+		close(cp.updateSequencer)
+	}
+	// Copy the previous channel and create a new one for the link to the next updateFunc
+	updateSequencer := cp.updateSequencer
+	cp.updateSequencer = make(chan struct{})
+	// Return everything in a closure to ensure references are maintained properly
+	return func(prev chan struct{}, sequenceNumber string, next chan struct{}) func() {
+		var once sync.Once
+		return func() {
+			once.Do(func() {
+				<-prev                    // Wait for all prior updateFuncs to be called
+				cp.update(sequenceNumber) // Actually perform the update
+				close(next)               // Allow the next updateFunc to be called
+			})
+		}
+	}(updateSequencer, sequenceNumber, cp.updateSequencer)
 }
 
 // finish marks the given sequence number as the final one for the shard.

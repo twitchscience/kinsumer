@@ -413,7 +413,9 @@ func (k *Kinsumer) Run() error {
 				return
 			case record = <-input:
 			case output <- record:
-				record.checkpointer.update(aws.StringValue(record.record.SequenceNumber))
+				if !k.config.manualCheckpointing {
+					record.checkpointer.update(aws.StringValue(record.record.SequenceNumber))
+				}
 				record = nil
 			case se := <-k.shardErrors:
 				k.errors <- fmt.Errorf("shard error (%s) in %s: %s", se.shardID, se.action, se.err)
@@ -452,6 +454,10 @@ func (k *Kinsumer) Stop() {
 // if err is non nil an error occurred in the system.
 // if err is nil and data is nil then kinsumer has been stopped
 func (k *Kinsumer) Next() (data []byte, err error) {
+	if k.config.manualCheckpointing {
+		return nil, fmt.Errorf("manual checkpointing is enabled, use NextWithCheckpointer() instead")
+	}
+
 	select {
 	case err = <-k.errors:
 		return nil, err
@@ -463,6 +469,32 @@ func (k *Kinsumer) Next() (data []byte, err error) {
 	}
 
 	return data, err
+}
+
+// NextWithCheckpointer is a blocking function used to get the next record from the kinesis queue, or errors that
+// occurred during the processing of kinesis. It's up to the caller to stop processing by calling 'Stop()'
+// checkpointer must be called when the record is fully processed. Kinsumer will ensure checkpointer calls are ordered.
+// WARNING: checkpointer() can block indefinitely if not called in order.
+//
+// if err is non nil an error occurred in the system.
+// if err is nil and data is nil then kinsumer has been stopped
+func (k *Kinsumer) NextWithCheckpointer() (data []byte, checkpointer func(), err error) {
+	if !k.config.manualCheckpointing {
+		return nil, nil, fmt.Errorf("manual checkpointing is disabled, use Next() instead")
+	}
+
+	select {
+	case err = <-k.errors:
+		return nil, nil, err
+	case record, ok := <-k.output:
+		if ok {
+			k.config.stats.EventToClient(*record.record.ApproximateArrivalTimestamp, record.retrievedAt)
+			data = record.record.Data
+			checkpointer = record.checkpointer.updateFunc(aws.StringValue(record.record.SequenceNumber))
+		}
+	}
+
+	return data, checkpointer, err
 }
 
 // CreateRequiredTables will create the required dynamodb tables
