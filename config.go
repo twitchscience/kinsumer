@@ -23,6 +23,10 @@ type Config struct {
 
 	// Delay between tests for the client or shard numbers changing
 	shardCheckFrequency time.Duration
+
+	// Starting timestamp of the shard iterator, if "AT_TIMESTAMP" is the desired iterator type
+	iteratorStartTimestamp *time.Time
+
 	// ---------- [ For the leader (first client alphabetically) ] ----------
 	// Time between leader actions
 	leaderActionFrequency time.Duration
@@ -92,6 +96,12 @@ func (c Config) WithBufferSize(bufferSize int) Config {
 // WithStats returns a Config with a modified stats
 func (c Config) WithStats(stats StatReceiver) Config {
 	c.stats = stats
+	return c
+}
+
+// WithIteratorStartTimestamp returns a Config with a modified iteratorStartTimestamp
+func (c Config) WithIteratorStartTimestamp(timestamp *time.Time) Config {
+	c.iteratorStartTimestamp = timestamp
 	return c
 }
 
