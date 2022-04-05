@@ -465,6 +465,27 @@ func (k *Kinsumer) Next() (data []byte, err error) {
 	return data, err
 }
 
+// NextRaw is a blocking function used to get the next record from the kinesis queue, or errors that
+// occurred during the processing of kinesis. It's up to the caller to stop processing by calling 'Stop()'
+//
+// It is different from Next in that it returns the Kinesis record object directly
+//
+// if err is non nil an error occurred in the system.
+// if err is nil and data is nil then kinsumer has been stopped
+func (k *Kinsumer) NextRaw() (data *kinesis.Record, err error) {
+	select {
+	case err = <-k.errors:
+		return nil, err
+	case record, ok := <-k.output:
+		if ok {
+			k.config.stats.EventToClient(*record.record.ApproximateArrivalTimestamp, record.retrievedAt)
+			data = record.record
+		}
+	}
+
+	return data, err
+}
+
 // CreateRequiredTables will create the required dynamodb tables
 // based on the applicationName
 func (k *Kinsumer) CreateRequiredTables() error {
