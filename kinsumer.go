@@ -4,6 +4,7 @@ package kinsumer
 
 import (
 	"fmt"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -125,14 +126,19 @@ func (k *Kinsumer) ResetAllToLatest() error {
 		return err
 	}
 
+	attrVals, err := dynamodbattribute.MarshalMap(map[string]interface{}{
+		":sn": aws.String("LATEST"),
+	})
+
 	for _, shardId := range shardIDs {
 		_, err := k.dynamodb.UpdateItem(
 			&dynamodb.UpdateItemInput{
 				TableName:        aws.String(k.checkpointTableName),
-				UpdateExpression: aws.String("SET SequenceNumber = \"LATEST\""),
+				UpdateExpression: aws.String("SET SequenceNumber = :sn"),
 				Key: map[string]*dynamodb.AttributeValue{
 					"Shard": {S: aws.String(shardId)},
 				},
+				ExpressionAttributeValues: attrVals,
 			})
 		if err != nil {
 			return err
