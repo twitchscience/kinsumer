@@ -118,6 +118,30 @@ func NewWithInterfaces(kinesis kinesisiface.KinesisAPI, dynamodb dynamodbiface.D
 	return consumer, nil
 }
 
+func (k *Kinsumer) ResetToPresent() error {
+
+	shardIDs, err := loadShardIDsFromKinesis(k.kinesis, k.streamName)
+	if err != nil {
+		return err
+	}
+
+	for _, shardId := range shardIDs {
+		_, err := k.dynamodb.UpdateItem(
+			&dynamodb.UpdateItemInput{
+				TableName:        aws.String(k.checkpointTableName),
+				UpdateExpression: aws.String("SET SequenceNumber = \"LATEST\""),
+				Key: map[string]*dynamodb.AttributeValue{
+					"Shard": {S: aws.String(shardId)},
+				},
+			})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // refreshShards registers our client, refreshes the lists of clients and shards, checks if we
 // have become/unbecome the leader, and returns whether the shards/clients changed.
 //TODO: Write unit test - needs dynamo _and_ kinesis mocking
