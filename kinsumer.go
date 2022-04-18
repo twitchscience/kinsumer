@@ -118,7 +118,7 @@ func NewWithInterfaces(kinesis kinesisiface.KinesisAPI, dynamodb dynamodbiface.D
 	return consumer, nil
 }
 
-func (k *Kinsumer) ResetToPresent() error {
+func (k *Kinsumer) ResetToLatest() error {
 
 	shardIDs, err := loadShardIDsFromKinesis(k.kinesis, k.streamName)
 	if err != nil {
