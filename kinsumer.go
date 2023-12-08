@@ -120,7 +120,7 @@ func NewWithInterfaces(kinesis kinesisiface.KinesisAPI, dynamodb dynamodbiface.D
 
 // refreshShards registers our client, refreshes the lists of clients and shards, checks if we
 // have become/unbecome the leader, and returns whether the shards/clients changed.
-//TODO: Write unit test - needs dynamo _and_ kinesis mocking
+// TODO: Write unit test - needs dynamo _and_ kinesis mocking
 func (k *Kinsumer) refreshShards() (bool, error) {
 	var shardIDs []string
 
@@ -316,14 +316,14 @@ func (k *Kinsumer) dynamoDeleteTableIfExists(name string) error {
 
 // kinesisStreamReady returns an error if the given stream is not ACTIVE
 func (k *Kinsumer) kinesisStreamReady() error {
-	out, err := k.kinesis.DescribeStream(&kinesis.DescribeStreamInput{
+	out, err := k.kinesis.DescribeStreamSummary(&kinesis.DescribeStreamSummaryInput{
 		StreamName: aws.String(k.streamName),
 	})
 	if err != nil {
 		return fmt.Errorf("error describing stream %s: %v", k.streamName, err)
 	}
 
-	status := aws.StringValue(out.StreamDescription.StreamStatus)
+	status := aws.StringValue(out.StreamDescriptionSummary.StreamStatus)
 	if status != "ACTIVE" && status != "UPDATING" {
 		return fmt.Errorf("stream %s exists but state '%s' is not 'ACTIVE' or 'UPDATING'", k.streamName, status)
 	}
@@ -334,7 +334,7 @@ func (k *Kinsumer) kinesisStreamReady() error {
 // Run runs the main kinesis consumer process. This is a non-blocking call, use Stop() to force it to return.
 // This goroutine is responsible for starting/stopping consumers, aggregating all consumers' records,
 // updating checkpointers as records are consumed, and refreshing our shard/client list and leadership
-//TODO: Can we unit test this at all?
+// TODO: Can we unit test this at all?
 func (k *Kinsumer) Run() error {
 	if err := k.dynamoTableReady(k.checkpointTableName); err != nil {
 		return err
@@ -440,7 +440,7 @@ func (k *Kinsumer) Run() error {
 }
 
 // Stop stops the consumption of kinesis events
-//TODO: Can we unit test this at all?
+// TODO: Can we unit test this at all?
 func (k *Kinsumer) Stop() {
 	k.stoprequest <- true
 	k.mainWG.Wait()
