@@ -314,23 +314,6 @@ func (k *Kinsumer) dynamoDeleteTableIfExists(name string) error {
 	return err
 }
 
-// kinesisStreamReady returns an error if the given stream is not ACTIVE
-func (k *Kinsumer) kinesisStreamReady() error {
-	out, err := k.kinesis.DescribeStreamSummary(&kinesis.DescribeStreamSummaryInput{
-		StreamName: aws.String(k.streamName),
-	})
-	if err != nil {
-		return fmt.Errorf("error describing stream %s: %v", k.streamName, err)
-	}
-
-	status := aws.StringValue(out.StreamDescriptionSummary.StreamStatus)
-	if status != "ACTIVE" && status != "UPDATING" {
-		return fmt.Errorf("stream %s exists but state '%s' is not 'ACTIVE' or 'UPDATING'", k.streamName, status)
-	}
-
-	return nil
-}
-
 // Run runs the main kinesis consumer process. This is a non-blocking call, use Stop() to force it to return.
 // This goroutine is responsible for starting/stopping consumers, aggregating all consumers' records,
 // updating checkpointers as records are consumed, and refreshing our shard/client list and leadership
@@ -342,9 +325,8 @@ func (k *Kinsumer) Run() error {
 	if err := k.dynamoTableReady(k.clientsTableName); err != nil {
 		return err
 	}
-	if err := k.kinesisStreamReady(); err != nil {
-		return err
-	}
+	// note, we do not check if the stream  is ready, but the reads will fail if the stream is in a bad spot
+	// there is not an API with high enough TPS to call on startup of readers
 
 	allowRun := atomic.CompareAndSwapInt32(&k.numberOfRuns, 0, 1)
 	if !allowRun {
