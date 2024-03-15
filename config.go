@@ -41,6 +41,9 @@ type Config struct {
 	dynamoWriteCapacity int64
 	// Time to wait between attempts to verify tables were created/deleted completely
 	dynamoWaiterDelay time.Duration
+
+	// use ListShards to avoid LimitExceedException from DescribeStream
+	useListShardsForKinesisStreamReady bool
 }
 
 // NewConfig returns a default Config struct
@@ -116,6 +119,12 @@ func (c Config) WithDynamoWaiterDelay(delay time.Duration) Config {
 // WithLogger returns a Config with a modified logger
 func (c Config) WithLogger(logger Logger) Config {
 	c.logger = logger
+	return c
+}
+
+// WithUseListShardsForKinesisStreamReady returns a config with a modified useListShardsForKinesisStreamReady toggle
+func (c Config) WithUseListShardsForKinesisStreamReady(shouldUse bool) Config {
+	c.useListShardsForKinesisStreamReady = shouldUse
 	return c
 }
 
