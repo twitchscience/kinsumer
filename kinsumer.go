@@ -454,7 +454,7 @@ func (k *Kinsumer) Stop() {
 	k.mainWG.Wait()
 }
 
-// Next is a blocking function used to get the next record from the kinesis queue, or errors that
+// Next is a blocking function used to get the next record data from the kinesis queue, or errors that
 // occurred during the processing of kinesis. It's up to the caller to stop processing by calling 'Stop()'
 //
 // if err is non nil an error occurred in the system.
@@ -471,6 +471,25 @@ func (k *Kinsumer) Next() (data []byte, err error) {
 	}
 
 	return data, err
+}
+
+// NextRecord is a blocking function used to get the next record from the kinesis queue, or errors that
+// occurred during the processing of kinesis. It's up to the caller to stop processing by calling 'Stop()'
+//
+// if err is non nil an error occurred in the system.
+// if err is nil and record is nil then kinsumer has been stopped
+func (k *Kinsumer) NextRecord() (rec *kinesis.Record , err error) {
+	select {
+	case err = <-k.errors:
+		return nil, err
+	case record, ok := <-k.output:
+		if ok {
+			k.config.stats.EventToClient(*record.record.ApproximateArrivalTimestamp, record.retrievedAt)
+			rec = record.record
+		}
+	}
+
+	return rec, err
 }
 
 // CreateRequiredTables will create the required dynamodb tables
